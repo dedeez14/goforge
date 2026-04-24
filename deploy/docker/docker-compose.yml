@@ -1,0 +1,54 @@
+name: goforge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: goforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: goforge
+      POSTGRES_PASSWORD: goforge
+      POSTGRES_DB: goforge
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goforge -d goforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    container_name: goforge-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../../migrations:/migrations
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://goforge:goforge@postgres:5432/goforge?sslmode=disable"
+      - "up"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: goforge-api
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      GOFORGE_APP_ENV: development
+      GOFORGE_HTTP_PORT: 8080
+      GOFORGE_DATABASE_DSN: postgres://goforge:goforge@postgres:5432/goforge?sslmode=disable
+      GOFORGE_JWT_SECRET: please-change-me-to-a-very-long-random-secret-key
+      GOFORGE_LOG_PRETTY: "false"
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
