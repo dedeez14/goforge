@@ -1,0 +1,27 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.out
+*.test
+
+# Env & secrets
+.env
+.env.local
+*.pem
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Coverage
+coverage.out
+coverage.html
+
+# Docker volumes
+/deploy/docker/pgdata/
+
+# Go
+vendor/
