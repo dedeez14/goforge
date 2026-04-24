@@ -44,7 +44,13 @@ func Run(ctx context.Context) error {
 	defer pool.Close()
 
 	// Infrastructure services.
-	hasher := security.NewPasswordHasher(security.DefaultArgon2idParams)
+	hasher := security.NewPasswordHasher(security.Argon2idParams{
+		Memory:      cfg.Security.ArgonMemoryKiB,
+		Iterations:  cfg.Security.ArgonIters,
+		Parallelism: cfg.Security.ArgonParallel,
+		SaltLength:  security.DefaultArgon2idParams.SaltLength,
+		KeyLength:   security.DefaultArgon2idParams.KeyLength,
+	})
 	tokens := security.NewTokenIssuer(cfg.JWT)
 
 	// Repositories.
