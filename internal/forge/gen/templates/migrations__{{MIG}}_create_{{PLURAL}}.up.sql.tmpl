@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS {{.Plural}} (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT        NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at  TIMESTAMPTZ NULL,
+    created_by  UUID        NULL,
+    updated_by  UUID        NULL,
+    deleted_by  UUID        NULL
+);
+
+CREATE INDEX IF NOT EXISTS {{.Plural}}_active_idx
+    ON {{.Plural}} (created_at DESC)
+    WHERE deleted_at IS NULL;

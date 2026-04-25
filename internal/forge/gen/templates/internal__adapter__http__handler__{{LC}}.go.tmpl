@@ -1,0 +1,98 @@
+package handler
+
+import (
+	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+
+	"{{.Module}}/internal/adapter/http/dto"
+	"{{.Module}}/internal/usecase"
+	"{{.Module}}/pkg/errs"
+)
+
+// {{.Name}}Handler is the Fiber handler for the {{.Plural}} resource.
+// Wire it from internal/infrastructure/server/router.go:
+//
+//	{{.Lower}}H := handler.New{{.Name}}Handler(uc)
+//	r := api.Group("/{{.Plural}}")
+//	r.Post("/", {{.Lower}}H.Create)
+//	r.Get("/:id", {{.Lower}}H.Get)
+//	r.Get("/", {{.Lower}}H.List)
+//	r.Put("/:id", {{.Lower}}H.Update)
+//	r.Delete("/:id", {{.Lower}}H.Delete)
+type {{.Name}}Handler struct{ UC *usecase.{{.Name}}UseCase }
+
+// New{{.Name}}Handler wires a handler.
+func New{{.Name}}Handler(uc *usecase.{{.Name}}UseCase) *{{.Name}}Handler { return &{{.Name}}Handler{UC: uc} }
+
+// Create POST /api/v1/{{.Plural}}
+func (h *{{.Name}}Handler) Create(c *fiber.Ctx) error {
+	var req dto.Create{{.Name}}Request
+	if err := c.BodyParser(&req); err != nil {
+		return errs.InvalidInput("{{.Lower}}.invalid_body", "invalid request body")
+	}
+	v, err := h.UC.Create(c.UserContext(), req.Name)
+	if err != nil {
+		return err
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success": true,
+		"data":    dto.Map{{.Name}}ToResponse(v),
+	})
+}
+
+// Get GET /api/v1/{{.Plural}}/:id
+func (h *{{.Name}}Handler) Get(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return errs.InvalidInput("{{.Lower}}.invalid_id", "invalid id")
+	}
+	v, err := h.UC.Get(c.UserContext(), id)
+	if err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"success": true, "data": dto.Map{{.Name}}ToResponse(v)})
+}
+
+// List GET /api/v1/{{.Plural}}
+func (h *{{.Name}}Handler) List(c *fiber.Ctx) error {
+	limit := c.QueryInt("limit", 20)
+	offset := c.QueryInt("offset", 0)
+	items, err := h.UC.List(c.UserContext(), limit, offset)
+	if err != nil {
+		return err
+	}
+	out := make([]dto.{{.Name}}Response, len(items))
+	for i, v := range items {
+		out[i] = dto.Map{{.Name}}ToResponse(&v)
+	}
+	return c.JSON(fiber.Map{"success": true, "data": out})
+}
+
+// Update PUT /api/v1/{{.Plural}}/:id
+func (h *{{.Name}}Handler) Update(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return errs.InvalidInput("{{.Lower}}.invalid_id", "invalid id")
+	}
+	var req dto.Update{{.Name}}Request
+	if err := c.BodyParser(&req); err != nil {
+		return errs.InvalidInput("{{.Lower}}.invalid_body", "invalid request body")
+	}
+	v, err := h.UC.Update(c.UserContext(), id, req.Name)
+	if err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"success": true, "data": dto.Map{{.Name}}ToResponse(v)})
+}
+
+// Delete DELETE /api/v1/{{.Plural}}/:id
+func (h *{{.Name}}Handler) Delete(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return errs.InvalidInput("{{.Lower}}.invalid_id", "invalid id")
+	}
+	if err := h.UC.Delete(c.UserContext(), id); err != nil {
+		return err
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}

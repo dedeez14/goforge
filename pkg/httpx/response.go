@@ -60,6 +60,38 @@ func NoContent(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+// RespondData writes data wrapped in the success envelope under the
+// given HTTP status code. Use OK / Created when the status is one of
+// the common success codes - this helper exists for handlers and
+// modules that need to pick a non-standard 2xx status.
+func RespondData(c *fiber.Ctx, status int, data any) error {
+	return c.Status(status).JSON(Envelope{
+		Success:   true,
+		Data:      data,
+		RequestID: requestID(c),
+	})
+}
+
+// FiberErrorHandler is the canonical fiber.ErrorHandler. It maps
+// fiber.Error into stable goforge error codes and falls back to
+// RespondError for everything else. Apps that build their own
+// *fiber.App should plug this in to keep the response envelope
+// consistent.
+func FiberErrorHandler(c *fiber.Ctx, err error) error {
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
+		switch fe.Code {
+		case fiber.StatusNotFound:
+			return RespondError(c, errs.NotFound("route.not_found", "route not found"))
+		case fiber.StatusMethodNotAllowed:
+			return RespondError(c, errs.InvalidInput("route.method_not_allowed", "method not allowed"))
+		case fiber.StatusRequestEntityTooLarge:
+			return RespondError(c, errs.InvalidInput("request.too_large", "request body too large"))
+		}
+	}
+	return RespondError(c, err)
+}
+
 // Paginated writes a 200 envelope with pagination meta.
 func Paginated(c *fiber.Ctx, data any, page, pageSize int, total int64) error {
 	totalPages := 0

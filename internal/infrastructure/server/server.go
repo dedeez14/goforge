@@ -31,11 +31,19 @@ func New(cfg *config.Config, log zerolog.Logger) *fiber.App {
 		WriteTimeout:          cfg.HTTP.WriteTimeout,
 		IdleTimeout:           cfg.HTTP.IdleTimeout,
 		BodyLimit:             cfg.HTTP.BodyLimitBytes,
-		Prefork:               cfg.HTTP.Prefork,
-		JSONEncoder:           json.Marshal,
-		JSONDecoder:           json.Unmarshal,
-		ErrorHandler:          errorHandler,
-		EnableIPValidation:    true,
+		// ReadBufferSize bounds the size of the request line + all
+		// headers. fasthttp's default (4 KiB) trips with a 500 the
+		// moment a client sends a slightly fat header (e.g. a long
+		// Cookie or Authorization value); we lift the ceiling to 16
+		// KiB to absorb realistic clients without becoming a DoS
+		// surface. Anything past that gets rejected at the parser
+		// with an explicit 431 by fasthttp.
+		ReadBufferSize:     16 * 1024,
+		Prefork:            cfg.HTTP.Prefork,
+		JSONEncoder:        json.Marshal,
+		JSONDecoder:        json.Unmarshal,
+		ErrorHandler:       errorHandler,
+		EnableIPValidation: true,
 	}
 	if len(cfg.HTTP.TrustedProxies) > 0 {
 		fcfg.EnableTrustedProxyCheck = true

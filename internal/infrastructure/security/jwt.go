@@ -1,7 +1,10 @@
 package security
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -31,17 +34,59 @@ type TokenIssuer interface {
 	Parse(token string) (*Claims, error)
 }
 
+// hmacKey couples a raw HMAC secret with its public key id (`kid`).
+// Tokens carry the kid in their header; verify uses the kid to pick
+// the right secret. Without this the framework cannot rotate secrets
+// without invalidating every live token at once.
+type hmacKey struct {
+	id     string
+	secret []byte
+}
+
+func newHMACKey(secret string) hmacKey {
+	sum := sha256.Sum256([]byte(secret))
+	return hmacKey{
+		id:     hex.EncodeToString(sum[:8]),
+		secret: []byte(secret),
+	}
+}
+
 type hmacIssuer struct {
-	secret     []byte
+	active     hmacKey            // signs new tokens
+	all        map[string]hmacKey // kid -> key (active + retired/next)
 	issuer     string
 	accessTTL  time.Duration
 	refreshTTL time.Duration
 }
 
 // NewTokenIssuer returns an HS256 JWT issuer configured from config.JWT.
+//
+// Multi-secret rotation: cfg.NextSecrets is a list of legacy or
+// upcoming secrets that may appear on incoming tokens but must not be
+// used for new tokens. To rotate:
+//
+//  1. Add the new secret to NextSecrets in production.
+//  2. After all instances reload, swap Secret to the new value and move
+//     the old one to NextSecrets.
+//  3. After every outstanding token has expired, drop the old secret.
+//
+// Tokens carry a `kid` header (the first 8 bytes of sha256 of the
+// secret) so verification picks the right key without trying every
+// secret on every request.
 func NewTokenIssuer(cfg config.JWT) TokenIssuer {
+	active := newHMACKey(cfg.Secret)
+	all := map[string]hmacKey{active.id: active}
+	for _, s := range cfg.NextSecrets {
+		s = strings.TrimSpace(s)
+		if s == "" || s == cfg.Secret {
+			continue
+		}
+		k := newHMACKey(s)
+		all[k.id] = k
+	}
 	return &hmacIssuer{
-		secret:     []byte(cfg.Secret),
+		active:     active,
+		all:        all,
 		issuer:     cfg.Issuer,
 		accessTTL:  cfg.AccessTTL,
 		refreshTTL: cfg.RefreshTTL,
@@ -67,7 +112,8 @@ func (i *hmacIssuer) Issue(subject uuid.UUID, kind TokenKind) (string, time.Time
 		Kind: kind,
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := tok.SignedString(i.secret)
+	tok.Header["kid"] = i.active.id
+	signed, err := tok.SignedString(i.active.secret)
 	if err != nil {
 		return "", time.Time{}, errs.Wrap(errs.KindInternal, "jwt.sign", "failed to sign token", err)
 	}
@@ -79,7 +125,17 @@ func (i *hmacIssuer) Parse(raw string) (*Claims, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return i.secret, nil
+		// When a kid is present we trust only the secret that
+		// matches it. When it isn't, we fall back to the active
+		// secret to stay compatible with tokens issued before
+		// rotation was introduced.
+		if kid, ok := t.Header["kid"].(string); ok && kid != "" {
+			if k, found := i.all[kid]; found {
+				return k.secret, nil
+			}
+			return nil, errors.New("unknown key id")
+		}
+		return i.active.secret, nil
 	}, jwt.WithIssuer(i.issuer), jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil {
 		return nil, errs.Unauthorized("jwt.invalid", "invalid or expired token")
@@ -89,4 +145,35 @@ func (i *hmacIssuer) Parse(raw string) (*Claims, error) {
 		return nil, errs.Unauthorized("jwt.invalid", "invalid or expired token")
 	}
 	return claims, nil
+}
+
+// PublicKeySet returns a JWKS-compatible view of the issuer's public
+// material. For HS256 secrets, the returned set is intentionally empty
+// — symmetric secrets must not be exposed. Asymmetric issuers (RS256,
+// EdDSA) override this to publish their public keys at
+// /.well-known/jwks.json.
+func (i *hmacIssuer) PublicKeySet() JWKS { return JWKS{Keys: []JWK{}} }
+
+// PublicKeySetProvider is implemented by issuers that can expose a
+// public key set. The HTTP layer uses it to serve JWKS only when the
+// configured issuer has something useful to publish.
+type PublicKeySetProvider interface {
+	PublicKeySet() JWKS
+}
+
+// JWKS is a minimal JSON Web Key Set as defined by RFC 7517.
+type JWKS struct {
+	Keys []JWK `json:"keys"`
+}
+
+// JWK is a minimal JSON Web Key. Only the fields required for
+// verification of HS-prefixed (no-op) and RS-prefixed signatures are
+// modelled; extend if you switch to EdDSA or ECDSA.
+type JWK struct {
+	Kty string `json:"kty"`
+	Use string `json:"use,omitempty"`
+	Kid string `json:"kid"`
+	Alg string `json:"alg,omitempty"`
+	N   string `json:"n,omitempty"`
+	E   string `json:"e,omitempty"`
 }

@@ -24,6 +24,23 @@
 - **DRY** — one error taxonomy, one response envelope, one validator, one error mapper.
 - **Scaffolded** — `make scaffold name=Order` generates a full vertical slice (domain → handler → migration) in one shot.
 
+### Signature platform features
+
+goforge ships with capabilities that are rare to find pre-wired in a Go starter:
+
+- **Module system** — formal `Module` interface for opt-in feature packs (`pkg/module`).
+- **Idempotency-Key middleware** — Stripe-style POST replay protection backed by Postgres (`pkg/idempotency`).
+- **Transactional outbox** — write data + events in one transaction; dispatcher drains at-least-once (`pkg/outbox`).
+- **Domain event bus** — in-process pub/sub with tenant propagation (`pkg/events`).
+- **Server-Sent Events bridge** — live `/api/v1/stream` endpoint reflecting the bus (`pkg/realtime`).
+- **Auto OpenAPI 3.1** — reflection-based spec at `/openapi.json`, Swagger UI at `/docs` (`pkg/openapi`).
+- **Multi-tenancy primitives** — `tenant.ID`, context propagation, header resolver, middleware (`pkg/tenant`).
+- **Prometheus metrics** — `/admin/metrics` with method/route/status histograms (`pkg/observability`).
+- **Feature flags** — env + static sources, TTL cache, hot-reload (`pkg/flags`).
+- **`forge` CLI** — single binary for `doctor`, `scaffold`, `migrate`, `openapi`, `bench`, `module` (`cmd/forge`).
+
+See [`docs/platform.md`](./docs/platform.md) for full details and the [`docs/modules.md`](./docs/modules.md) for writing your own.
+
 ---
 
 ## Table of contents
@@ -297,10 +314,13 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 ## Documentation index
 
 - [`docs/architecture.md`](./docs/architecture.md) — layers, dependency rule, error mapping, request lifecycle.
+- [`docs/platform.md`](./docs/platform.md) — signature features (idempotency, outbox, realtime SSE, OpenAPI 3.1, metrics, flags).
+- [`docs/modules.md`](./docs/modules.md) — Module interface, lifecycle, anatomy of a third-party module.
 - [`docs/configuration.md`](./docs/configuration.md) — every config key explained with defaults and tuning notes.
 - [`docs/scaffolding.md`](./docs/scaffolding.md) — adding a new resource step-by-step, conventions for transactions/pagination/authz.
 - [`docs/benchmark.md`](./docs/benchmark.md) — full methodology and 200k + 500k request results.
 - [`docs/security.md`](./docs/security.md) — threat model, password hashing, JWT design, header policy.
+- [`ROADMAP.md`](./ROADMAP.md) · [`CONTRIBUTING.md`](./CONTRIBUTING.md) · [`SECURITY.md`](./SECURITY.md) · [`AGENTS.md`](./AGENTS.md)
 
 ---
 

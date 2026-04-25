@@ -1,0 +1,63 @@
+package usecase
+
+import (
+	"context"
+	"time"
+
+	"github.com/google/uuid"
+
+	"{{.Module}}/internal/domain/{{.Lower}}"
+)
+
+// {{.Name}}UseCase orchestrates {{.Lower}} operations. Inject the
+// repository at construction time; do not new it inside.
+type {{.Name}}UseCase struct {
+	Repo {{.Lower}}.Repository
+}
+
+// New{{.Name}}UseCase wires the use case.
+func New{{.Name}}UseCase(repo {{.Lower}}.Repository) *{{.Name}}UseCase {
+	return &{{.Name}}UseCase{Repo: repo}
+}
+
+// Create stores a new {{.Lower}}.
+func (uc *{{.Name}}UseCase) Create(ctx context.Context, name string) (*{{.Lower}}.{{.Name}}, error) {
+	v := &{{.Lower}}.{{.Name}}{ID: uuid.New(), Name: name}
+	v.Audit.Create(ctx, time.Now().UTC())
+	if err := uc.Repo.Create(ctx, v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// Get returns one {{.Lower}} by id.
+func (uc *{{.Name}}UseCase) Get(ctx context.Context, id uuid.UUID) (*{{.Lower}}.{{.Name}}, error) {
+	return uc.Repo.FindByID(ctx, id)
+}
+
+// List returns a page of {{.Plural}}.
+func (uc *{{.Name}}UseCase) List(ctx context.Context, limit, offset int) ([]{{.Lower}}.{{.Name}}, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	return uc.Repo.List(ctx, limit, offset)
+}
+
+// Update mutates a {{.Lower}}.
+func (uc *{{.Name}}UseCase) Update(ctx context.Context, id uuid.UUID, name string) (*{{.Lower}}.{{.Name}}, error) {
+	v, err := uc.Repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	v.Name = name
+	v.Audit.Touch(ctx, time.Now().UTC())
+	if err := uc.Repo.Update(ctx, v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// Delete soft-deletes a {{.Lower}}; the row stays in the table.
+func (uc *{{.Name}}UseCase) Delete(ctx context.Context, id uuid.UUID) error {
+	return uc.Repo.SoftDelete(ctx, id)
+}
