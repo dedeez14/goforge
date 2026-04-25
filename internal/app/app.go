@@ -26,6 +26,7 @@ import (
 	"github.com/dedeez14/goforge/internal/infrastructure/server"
 	"github.com/dedeez14/goforge/internal/platform"
 	"github.com/dedeez14/goforge/internal/usecase"
+	"github.com/dedeez14/goforge/pkg/i18n"
 	"github.com/dedeez14/goforge/pkg/observability"
 	"github.com/dedeez14/goforge/pkg/openapi"
 )
@@ -50,6 +51,12 @@ func Run(ctx context.Context) error {
 
 	log := logger.New(cfg.Log, cfg.App)
 	log.Info().Str("env", cfg.App.Env).Int("port", cfg.HTTP.Port).Msg("starting service")
+
+	// Construct the i18n bundle here at the composition root. It
+	// flows down explicitly via server.New into the request-scoped
+	// middleware; downstream code reads it from c.UserContext()
+	// rather than any package-level global.
+	i18nBundle := i18n.DefaultBundle()
 
 	// OpenTelemetry: when an OTLP endpoint is configured, every
 	// request handler, outbox dispatch and (future) DB call emits a
@@ -127,7 +134,7 @@ func Run(ctx context.Context) error {
 		APIKeys:     handler.NewAPIKeyHandler(apiKeyUC),
 	}
 
-	app := server.New(cfg, log)
+	app := server.New(cfg, log, i18nBundle)
 
 	// Platform features (idempotency, outbox, realtime, openapi, metrics).
 	plat := platform.Build(app, pool, cfg.Platform, openapi.Info{

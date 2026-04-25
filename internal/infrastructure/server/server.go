@@ -16,13 +16,18 @@ import (
 	"github.com/dedeez14/goforge/internal/config"
 	"github.com/dedeez14/goforge/pkg/errs"
 	"github.com/dedeez14/goforge/pkg/httpx"
+	"github.com/dedeez14/goforge/pkg/i18n"
 )
 
 // New builds a fully-configured *fiber.App ready for routes to be
 // registered on. The returned app has all global middlewares installed
 // in a deliberate order: recover -> request id -> security headers ->
-// cors -> rate limit -> request logger -> timeout.
-func New(cfg *config.Config, log zerolog.Logger) *fiber.App {
+// i18n -> cors -> rate limit -> request logger -> timeout.
+//
+// bundle is the i18n catalogue used to localise error responses;
+// pass nil to disable localisation entirely (httpx.RespondError will
+// fall back to the original English messages).
+func New(cfg *config.Config, log zerolog.Logger, bundle *i18n.Bundle) *fiber.App {
 	fcfg := fiber.Config{
 		AppName:               cfg.App.Name,
 		ServerHeader:          cfg.App.Name,
@@ -56,6 +61,11 @@ func New(cfg *config.Config, log zerolog.Logger) *fiber.App {
 	app.Use(middleware.Recover(log))
 	app.Use(middleware.RequestID())
 	app.Use(middleware.SecurityHeaders())
+	// Resolve the request's locale early and attach the bundle so
+	// every error rendered downstream (rate-limit, timeout,
+	// validator, handler) can be translated. A nil bundle leaves the
+	// existing English messages in place.
+	app.Use(i18n.Middleware(bundle, i18n.LocaleEN, i18n.LocaleID))
 
 	app.Use(fibercors.New(fibercors.Config{
 		AllowOrigins: cfg.Security.CORSAllowOrigins,
