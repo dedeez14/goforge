@@ -46,6 +46,7 @@ var commands = []command{
 	{name: "openapi", desc: "Print the OpenAPI 3.1 spec by hitting the running API", run: cmdOpenAPI},
 	{name: "bench", desc: "Forward to cmd/bench load-test harness", run: cmdBench},
 	{name: "module", desc: "Inspect modules registered with the running API", run: cmdModule},
+	{name: "rbac", desc: "Permission registry: `forge rbac sync` upserts code references into the DB", run: cmdRBACSync},
 	{name: "version", desc: "Print version", run: func(_ context.Context, _ []string) error {
 		fmt.Printf("forge %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return nil
