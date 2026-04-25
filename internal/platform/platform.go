@@ -18,6 +18,7 @@ package platform
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -137,7 +138,10 @@ func (s *Services) adminAuthMiddleware() fiber.Handler {
 			}
 			return c.Next()
 		}
-		if c.Get("X-Admin-Token") != token {
+		// Constant-time comparison: a plain != would leak the token
+		// byte-by-byte through response-time differences (the same
+		// timing-side-channel pattern as the auth login path).
+		if subtle.ConstantTimeCompare([]byte(c.Get("X-Admin-Token")), []byte(token)) != 1 {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"success": false,
 				"error":   fiber.Map{"code": "admin.unauthorized", "message": "invalid admin token"},
