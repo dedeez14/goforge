@@ -52,7 +52,10 @@ func pickLocale(header string, allow map[Locale]struct{}) Locale {
 	for _, item := range strings.Split(header, ",") {
 		item = strings.TrimSpace(item)
 		if i := strings.Index(item, ";"); i >= 0 {
-			item = item[:i]
+			// RFC 9110 allows optional whitespace before ";",
+			// e.g. "id ;q=0.8". Trim again so the bare primary
+			// subtag matches the supported set.
+			item = strings.TrimSpace(item[:i])
 		}
 		if item == "" || item == "*" {
 			continue

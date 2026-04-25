@@ -74,9 +74,18 @@ func DefaultBundle() *Bundle {
 		LocaleEN: "invalid token subject",
 		LocaleID: "subjek token tidak valid",
 	})
+	// auth.wrong_token_kind is emitted when a *protected* endpoint is
+	// hit with a non-access bearer (e.g. a refresh token). The
+	// inverse case - hitting /refresh with an access token - is a
+	// distinct auth.refresh_token_required so the translated
+	// message tells the client what to do.
 	b.AddMany("auth.wrong_token_kind", map[Locale]string{
 		LocaleEN: "access token required",
 		LocaleID: "diperlukan access token",
+	})
+	b.AddMany("auth.refresh_token_required", map[Locale]string{
+		LocaleEN: "refresh token required",
+		LocaleID: "diperlukan refresh token",
 	})
 	b.AddMany("auth.token_reused", map[Locale]string{
 		LocaleEN: "refresh token has already been used",

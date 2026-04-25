@@ -73,7 +73,13 @@ func RequirePermission(code string, resolver PermissionResolver, tenant TenantRe
 				return c.Next()
 			}
 		}
-		return httpx.RespondError(c, errs.Forbidden("rbac.permission_required", "missing required permission: "+code))
+		// Stash the missing permission code in Meta rather than
+		// concatenating it into the human message: i18n bundles
+		// translate by code and would otherwise drop the dynamic
+		// part of the message.
+		return httpx.RespondError(c, errs.
+			Forbidden("rbac.permission_required", "missing required permission").
+			With("permission", code))
 	}
 }
 
@@ -102,7 +108,9 @@ func RequireAnyPermission(codes []string, resolver PermissionResolver, tenant Te
 				return c.Next()
 			}
 		}
-		return httpx.RespondError(c, errs.Forbidden("rbac.permission_required", "missing required permission"))
+		return httpx.RespondError(c, errs.
+			Forbidden("rbac.permission_required", "missing required permission").
+			With("permissions_any_of", codes))
 	}
 }
 

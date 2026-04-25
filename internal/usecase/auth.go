@@ -167,7 +167,7 @@ func (uc *AuthUseCase) Refresh(ctx context.Context, refreshToken string) (*Token
 		return nil, err
 	}
 	if claims.Kind != security.TokenRefresh {
-		return nil, errs.Unauthorized("auth.wrong_token_kind", "refresh token required")
+		return nil, errs.Unauthorized("auth.refresh_token_required", "refresh token required")
 	}
 	id, perr := uuid.Parse(claims.Subject)
 	if perr != nil {
