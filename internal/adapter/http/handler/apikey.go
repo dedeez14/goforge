@@ -89,7 +89,13 @@ func (h *APIKeyHandler) Revoke(c *fiber.Ctx) error {
 		return httpx.RespondError(c, err)
 	}
 	uid := middleware.UserIDFromCtx(c)
-	if err := h.uc.Revoke(c.UserContext(), id, &uid); err != nil {
+	if uid == uuidNil {
+		return httpx.RespondError(c,
+			errs.Unauthorized("auth.required", "authentication required"))
+	}
+	// uid is both the ownership filter and the audit actor: a
+	// self-service revoke is always "I revoke my own key".
+	if err := h.uc.Revoke(c.UserContext(), id, uid, &uid); err != nil {
 		return httpx.RespondError(c, err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)

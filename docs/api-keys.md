@@ -80,9 +80,20 @@ hashes).
 
 ### `DELETE /api/v1/api-keys/{id}`
 
-Revoke a key. Idempotent from the caller's perspective (a second call
-returns 404 because the key is gone). The audit log retains the
-original revoke event with timestamp + actor.
+Revoke a key the caller owns. The repository SQL filters on both
+`id` and `user_id`, so a user cannot revoke a key belonging to
+somebody else by guessing its UUID; mismatched ownership returns
+404 (deliberately collapsed with "not found" so the endpoint cannot
+be used as an oracle for key existence).
+
+Idempotent from the caller's perspective (a second call returns 404
+because the key is gone). The audit log retains the original revoke
+event with timestamp + actor.
+
+System keys (those minted with `user_id IS NULL`) cannot be revoked
+through this endpoint - they belong to admin tooling that should
+gate revoke behind an `apikeys.manage` permission and pass its own
+filter.
 
 ## Authentication on protected routes
 

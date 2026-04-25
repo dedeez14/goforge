@@ -87,10 +87,13 @@ func (u *APIKeyUseCase) List(ctx context.Context, userID uuid.UUID) ([]*apikey.K
 	return u.repo.ListByUser(ctx, userID)
 }
 
-// Revoke marks id as revoked. Returns NotFound if the key doesn't
-// exist or is already deleted.
-func (u *APIKeyUseCase) Revoke(ctx context.Context, id uuid.UUID, by *uuid.UUID) error {
-	if err := u.repo.Revoke(ctx, id, by, u.clock()); err != nil {
+// Revoke marks id as revoked when the key is owned by ownerID. Any
+// other situation (key does not exist, already revoked, or owned by
+// a different user) collapses into a single NotFound to defeat
+// IDOR enumeration attempts. by is the actor recorded on the
+// updated_by audit column and may equal ownerID for self-service.
+func (u *APIKeyUseCase) Revoke(ctx context.Context, id, ownerID uuid.UUID, by *uuid.UUID) error {
+	if err := u.repo.Revoke(ctx, id, ownerID, by, u.clock()); err != nil {
 		return apikey.MapNotFound(err)
 	}
 	return nil

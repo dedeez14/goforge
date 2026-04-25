@@ -78,7 +78,15 @@ type Repo interface {
 	GetByPrefix(ctx context.Context, prefix string) (*Key, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Key, error)
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]*Key, error)
-	Revoke(ctx context.Context, id uuid.UUID, by *uuid.UUID, at time.Time) error
+	// Revoke transitions a key into the revoked state. ownerID
+	// scopes the update to keys owned by the caller, defending
+	// against IDOR: an authenticated user must not be able to
+	// revoke a key belonging to somebody else just by knowing
+	// (or guessing) its UUID. ErrNotFound is returned both when
+	// the key does not exist and when it exists but is owned by
+	// a different user, deliberately collapsing the two so the
+	// endpoint cannot be used as an oracle for key existence.
+	Revoke(ctx context.Context, id, ownerID uuid.UUID, by *uuid.UUID, at time.Time) error
 	UpdateLastUsed(ctx context.Context, id uuid.UUID, at time.Time) error
 }
 

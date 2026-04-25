@@ -37,10 +37,15 @@ SELECT id, prefix, hash, name, user_id, tenant_id, scopes,
 FROM api_keys
 WHERE user_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC`
+	// qAPIKeyRevoke is scoped to user_id = $2 to prevent IDOR:
+	// the calling user must be the key's owner. System keys
+	// (user_id IS NULL) are deliberately not reachable through
+	// this endpoint - they belong to admin tooling that should
+	// gate revoke behind apikeys.manage and pass its own filter.
 	qAPIKeyRevoke = `
 UPDATE api_keys
-SET revoked_at = $3, updated_at = NOW(), updated_by = $2
-WHERE id = $1 AND revoked_at IS NULL AND deleted_at IS NULL`
+SET revoked_at = $4, updated_at = NOW(), updated_by = $3
+WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND deleted_at IS NULL`
 	qAPIKeyTouchLastUsed = `
 UPDATE api_keys
 SET last_used_at = $2
@@ -109,9 +114,12 @@ func (r *APIKeyRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]
 	return out, nil
 }
 
-// Revoke marks id as revoked at time at; idempotent if already revoked.
-func (r *APIKeyRepository) Revoke(ctx context.Context, id uuid.UUID, by *uuid.UUID, at time.Time) error {
-	tag, err := r.pool.Exec(ctx, qAPIKeyRevoke, id, actorOrNil(by), at)
+// Revoke marks id as revoked at time at, returning ErrNotFound when
+// no row matched - either because the key does not exist, has already
+// been revoked, or belongs to a user other than ownerID. Collapsing
+// the three cases into one error avoids leaking key existence.
+func (r *APIKeyRepository) Revoke(ctx context.Context, id, ownerID uuid.UUID, by *uuid.UUID, at time.Time) error {
+	tag, err := r.pool.Exec(ctx, qAPIKeyRevoke, id, ownerID, actorOrNil(by), at)
 	if err != nil {
 		return errs.Wrap(errs.KindInternal, "apikey.revoke", "failed to revoke api key", err)
 	}

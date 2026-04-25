@@ -74,11 +74,17 @@ func (r *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID) ([]*apikey.Ke
 	return out, nil
 }
 
-func (r *fakeRepo) Revoke(_ context.Context, id uuid.UUID, by *uuid.UUID, at time.Time) error {
+func (r *fakeRepo) Revoke(_ context.Context, id, ownerID uuid.UUID, by *uuid.UUID, at time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k, ok := r.keys[id]
 	if !ok || k.RevokedAt != nil {
+		return apikey.ErrNotFound
+	}
+	// Ownership filter mirrors the production SQL: a key with no
+	// owner (system key) or a different owner cannot be revoked
+	// through this path.
+	if k.UserID == nil || *k.UserID != ownerID {
 		return apikey.ErrNotFound
 	}
 	k.RevokedAt = &at
@@ -175,8 +181,9 @@ func TestAuthenticate_RejectsTamperedSecret(t *testing.T) {
 func TestAuthenticate_RejectsRevokedKey(t *testing.T) {
 	repo := newFakeRepo()
 	uc := newUC(repo, time.Now())
-	res, _ := uc.Create(context.Background(), CreateInput{Name: "k"})
-	if err := uc.Revoke(context.Background(), res.Key.ID, nil); err != nil {
+	owner := uuid.New()
+	res, _ := uc.Create(context.Background(), CreateInput{Name: "k", UserID: &owner})
+	if err := uc.Revoke(context.Background(), res.Key.ID, owner, &owner); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 	_, err := uc.Authenticate(context.Background(), res.Plaintext)
@@ -211,13 +218,55 @@ func TestAuthenticate_MalformedTokenIs401(t *testing.T) {
 
 func TestRevoke_NotFoundMapsToErrsNotFound(t *testing.T) {
 	uc := newUC(newFakeRepo(), time.Now())
-	err := uc.Revoke(context.Background(), uuid.New(), nil)
+	owner := uuid.New()
+	err := uc.Revoke(context.Background(), uuid.New(), owner, &owner)
 	if err == nil {
 		t.Fatalf("expected revoke of unknown id to fail")
 	}
 	var e *errs.Error
 	if !errors.As(err, &e) || e.Kind != errs.KindNotFound {
 		t.Fatalf("expected not-found errs.Error; got %v", err)
+	}
+}
+
+// TestRevoke_RejectsForeignOwner is the regression test for the
+// IDOR Devin Review caught on PR #16: an authenticated user must
+// not be able to revoke another user's key by knowing its UUID.
+// We collapse the response into NotFound (instead of Forbidden) so
+// the endpoint cannot be used as an oracle for key existence.
+func TestRevoke_RejectsForeignOwner(t *testing.T) {
+	repo := newFakeRepo()
+	uc := newUC(repo, time.Now())
+	alice := uuid.New()
+	eve := uuid.New()
+	res, _ := uc.Create(context.Background(), CreateInput{Name: "alice's key", UserID: &alice})
+
+	err := uc.Revoke(context.Background(), res.Key.ID, eve, &eve)
+	if err == nil {
+		t.Fatalf("eve must not be able to revoke alice's key")
+	}
+	var e *errs.Error
+	if !errors.As(err, &e) || e.Kind != errs.KindNotFound {
+		t.Fatalf("foreign-owner revoke should map to NotFound; got %v", err)
+	}
+	// Belt and braces: the key must remain authentic-able.
+	if _, err := uc.Authenticate(context.Background(), res.Plaintext); err != nil {
+		t.Fatalf("alice's key should still authenticate after eve's failed revoke; got %v", err)
+	}
+}
+
+// TestRevoke_AcceptsOwner ensures the new ownership filter does not
+// regress the happy path for the legitimate owner.
+func TestRevoke_AcceptsOwner(t *testing.T) {
+	repo := newFakeRepo()
+	uc := newUC(repo, time.Now())
+	owner := uuid.New()
+	res, _ := uc.Create(context.Background(), CreateInput{Name: "k", UserID: &owner})
+	if err := uc.Revoke(context.Background(), res.Key.ID, owner, &owner); err != nil {
+		t.Fatalf("owner must be able to revoke own key; got %v", err)
+	}
+	if _, err := uc.Authenticate(context.Background(), res.Plaintext); err == nil {
+		t.Fatalf("revoked key must not authenticate")
 	}
 }
 
