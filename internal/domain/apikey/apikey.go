@@ -6,7 +6,6 @@ package apikey
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,9 +67,11 @@ func (k *Key) HasScope(code string) bool {
 	return false
 }
 
-// ErrNotFound is returned when no row matches the requested
-// prefix or id. Wrapped via errs.NotFound at the use-case boundary.
-var ErrNotFound = errors.New("apikey not found")
+// ErrNotFound is the canonical sentinel for "no key matched the
+// requested prefix or id". Following the user/menu convention it is
+// already a *errs.Error so callers can return it straight to the
+// HTTP layer without an explicit translation step.
+var ErrNotFound = errs.NotFound("apikey.not_found", "API key not found")
 
 // Repo is the persistence interface implemented by Postgres.
 type Repo interface {
@@ -88,13 +89,4 @@ type Repo interface {
 	// endpoint cannot be used as an oracle for key existence.
 	Revoke(ctx context.Context, id, ownerID uuid.UUID, by *uuid.UUID, at time.Time) error
 	UpdateLastUsed(ctx context.Context, id uuid.UUID, at time.Time) error
-}
-
-// MapNotFound converts ErrNotFound into the framework's canonical
-// not-found, leaving any other error untouched.
-func MapNotFound(err error) error {
-	if errors.Is(err, ErrNotFound) {
-		return errs.NotFound("apikey.not_found", "API key not found")
-	}
-	return err
 }

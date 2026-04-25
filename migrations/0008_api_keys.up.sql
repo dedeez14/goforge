@@ -1,6 +1,6 @@
 -- API key authentication.
 -- Each row represents one issued, possibly-revoked API key. The
--- secret portion is never stored - only an Argon2id hash. Prefix
+-- secret portion is never stored - only a SHA-256 hash. Prefix
 -- is the public-visible part shown in admin UIs and used as a
 -- fast lookup index (`gf_live_<8>`).
 --

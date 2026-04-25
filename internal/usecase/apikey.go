@@ -99,10 +99,9 @@ func (u *APIKeyUseCase) List(ctx context.Context, userID uuid.UUID) ([]*apikey.K
 // IDOR enumeration attempts. by is the actor recorded on the
 // updated_by audit column and may equal ownerID for self-service.
 func (u *APIKeyUseCase) Revoke(ctx context.Context, id, ownerID uuid.UUID, by *uuid.UUID) error {
-	if err := u.repo.Revoke(ctx, id, ownerID, by, u.clock()); err != nil {
-		return apikey.MapNotFound(err)
-	}
-	return nil
+	// apikey.ErrNotFound is already an *errs.Error, so the HTTP
+	// layer renders it as 404 directly - no MapNotFound needed.
+	return u.repo.Revoke(ctx, id, ownerID, by, u.clock())
 }
 
 // Authenticate verifies a presented bearer token. Returns the
