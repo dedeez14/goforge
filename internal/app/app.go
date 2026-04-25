@@ -83,14 +83,28 @@ func Run(ctx context.Context) error {
 
 	// Repositories.
 	users := pgrepo.NewUserRepository(pool)
+	permissions := pgrepo.NewPermissionRepository(pool)
+	roles := pgrepo.NewRoleRepository(pool)
+	userRoles := pgrepo.NewUserRoleRepository(pool)
+	menus := pgrepo.NewMenuRepository(pool)
 
 	// Use-cases.
 	authUC := usecase.NewAuthUseCase(users, hasher, tokens, refreshStore, log)
+	// audit is wired by the platform.Build call below; for now the
+	// RBAC + Menu use-cases run with a nil auditor (no-op). Apps
+	// that want a persisted audit trail should pass an *audit.Logger.
+	permUC := usecase.NewPermissionUseCase(permissions, nil, log)
+	roleUC := usecase.NewRoleUseCase(roles, permissions, nil, log)
+	accessUC := usecase.NewUserAccessUseCase(userRoles, roles, nil, log)
+	menuUC := usecase.NewMenuUseCase(menus, nil, log)
 
 	// Handlers.
 	handlers := server.Handlers{
-		Auth:   handler.NewAuthHandler(authUC),
-		Health: handler.NewHealthHandler(cfg.App, pool),
+		Auth:        handler.NewAuthHandler(authUC),
+		Health:      handler.NewHealthHandler(cfg.App, pool),
+		Permissions: handler.NewPermissionHandler(permUC),
+		Roles:       handler.NewRoleHandler(roleUC, accessUC),
+		Menus:       handler.NewMenuHandler(menuUC, accessUC),
 	}
 
 	app := server.New(cfg, log)
@@ -104,7 +118,9 @@ func Run(ctx context.Context) error {
 	registerOpenAPI(plat.OpenAPI)
 	platform.MountJWKS(app, tokens)
 
-	server.Register(app, handlers, tokens)
+	server.Register(app, handlers, tokens, server.AccessControl{
+		Resolver: accessUC,
+	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.HTTP.Host, cfg.HTTP.Port)
 
