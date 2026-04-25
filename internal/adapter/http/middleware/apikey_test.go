@@ -164,6 +164,52 @@ func TestAPIKey_AuthenticatorErrorBecomes401Body(t *testing.T) {
 	}
 }
 
+// TestRequireUserSession_RejectsAPIKeyAuth is the regression test
+// for the privilege-escalation finding on PR #16: a narrow-scoped
+// API key must not be allowed to call POST /api/v1/api-keys (or any
+// other credential-management endpoint) and mint a wildcard-scoped
+// successor for itself. RequireUserSession is the structural guard
+// that enforces "credentials are managed only from JWT sessions".
+func TestRequireUserSession_RejectsAPIKeyAuth(t *testing.T) {
+	uid := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	auth := func(_ context.Context, _ string) (uuid.UUID, []string, error) {
+		return uid, []string{"reports.read"}, nil
+	}
+	app := fiber.New()
+	jwtAuth := func(c *fiber.Ctx) error {
+		c.Locals(CtxKeyUserID, uid)
+		return c.Next()
+	}
+	app.Use(APIKeyOrJWTAuth(auth, jwtAuth))
+	app.Use(RequireUserSession())
+	app.Post("/api-keys", func(c *fiber.Ctx) error { return c.SendString("minted!") })
+
+	// 1) API-key bearer must be rejected.
+	req := httptest.NewRequest("POST", "/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer gf_test_aaaaaaaaaaaa_"+pad64('a'))
+	resp, err := app.Test(req, 1000)
+	if err != nil {
+		t.Fatalf("test req: %v", err)
+	}
+	if resp.StatusCode != 403 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("API-key bearer must get 403, got %d (%s)", resp.StatusCode, body)
+	}
+
+	// 2) JWT bearer must be allowed through (the guard is structural,
+	// not a blanket deny).
+	req = httptest.NewRequest("POST", "/api-keys", nil)
+	req.Header.Set("Authorization", "Bearer not-an-api-key")
+	resp, err = app.Test(req, 1000)
+	if err != nil {
+		t.Fatalf("jwt req: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("JWT bearer must be allowed, got %d (%s)", resp.StatusCode, body)
+	}
+}
+
 // pad64 builds a 64-char "secret" string so the test bearer parses
 // as gf_<env>_<id>_<secret>. The middleware-only tests stub
 // APIKeyAuthenticate so the secret content is not actually verified
