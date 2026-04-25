@@ -220,7 +220,7 @@ func checkEnvSanity() checkResult {
 	if cors := os.Getenv("GOFORGE_SECURITY_CORS_ALLOW_ORIGINS"); cors == "" || cors == "*" {
 		issues = append(issues, "CORS wildcard")
 	}
-	if dsn := os.Getenv("GOFORGE_DATABASE_DSN"); strings.Contains(dsn, "@localhost") || strings.Contains(dsn, "@127.0.0.1") {
+	if isLocalhostDSN(os.Getenv("GOFORGE_DATABASE_DSN")) {
 		issues = append(issues, "localhost DSN in prod")
 	}
 	if os.Getenv("GOFORGE_PLATFORM_ADMIN_TOKEN") == "" {
@@ -265,6 +265,34 @@ func checkGovulncheck(ctx context.Context) checkResult {
 		return checkResult{name: "govulncheck", ok: false, detail: "vulnerabilities found - run `govulncheck ./...` for details (" + first + ")"}
 	}
 	return checkResult{name: "govulncheck", ok: true, detail: "no known vulnerabilities"}
+}
+
+// isLocalhostDSN reports whether dsn's host component is one of the
+// loopback names (localhost, 127.0.0.1, ::1). Reuses extractHost so
+// the parsing matches what `forge doctor` prints elsewhere; an empty
+// host (unparseable DSN) returns false so we don't false-positive on
+// unrecognised shapes.
+//
+// Naive substring matching ("@localhost") was rejected because it
+// false-positives on legitimate hostnames like
+// "@localhost.db.internal" or "@127.0.0.100".
+func isLocalhostDSN(dsn string) bool {
+	if dsn == "" {
+		return false
+	}
+	hostPort := extractHost(dsn)
+	if hostPort == "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		host = hostPort
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
 }
 
 func extractHost(dsn string) string {
