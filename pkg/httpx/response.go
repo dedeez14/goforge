@@ -13,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/dedeez14/goforge/pkg/errs"
+	"github.com/dedeez14/goforge/pkg/i18n"
 )
 
 // Envelope is the canonical JSON body for all responses.
@@ -114,8 +115,14 @@ func Paginated(c *fiber.Ctx, data any, page, pageSize int, total int64) error {
 // RespondError maps any error to the canonical JSON envelope + HTTP status.
 // Only *errs.Error messages are exposed to clients; everything else is
 // collapsed to a generic "internal" error to avoid leaking internals.
+//
+// When a global i18n bundle is registered and the request context
+// carries a locale (set by i18n.Middleware), the error message is
+// translated by code. The original message is used as the fallback
+// so apps that don't wire i18n keep their existing strings.
 func RespondError(c *fiber.Ctx, err error) error {
 	status, payload := mapError(err)
+	payload.Message = i18n.T(c.UserContext(), payload.Code, payload.Message)
 	return c.Status(status).JSON(Envelope{
 		Success:   false,
 		Error:     payload,

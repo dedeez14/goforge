@@ -16,6 +16,7 @@ import (
 	"github.com/dedeez14/goforge/internal/config"
 	"github.com/dedeez14/goforge/pkg/errs"
 	"github.com/dedeez14/goforge/pkg/httpx"
+	"github.com/dedeez14/goforge/pkg/i18n"
 )
 
 // New builds a fully-configured *fiber.App ready for routes to be
@@ -56,6 +57,10 @@ func New(cfg *config.Config, log zerolog.Logger) *fiber.App {
 	app.Use(middleware.Recover(log))
 	app.Use(middleware.RequestID())
 	app.Use(middleware.SecurityHeaders())
+	// Resolve the request's locale early so every error rendered
+	// downstream (rate-limit, timeout, validator, handler) can be
+	// translated by the global i18n bundle.
+	app.Use(i18n.Middleware(i18n.LocaleEN, i18n.LocaleID))
 
 	app.Use(fibercors.New(fibercors.Config{
 		AllowOrigins: cfg.Security.CORSAllowOrigins,

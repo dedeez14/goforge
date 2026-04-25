@@ -24,6 +24,7 @@ import (
 	"github.com/dedeez14/goforge/internal/infrastructure/server"
 	"github.com/dedeez14/goforge/internal/platform"
 	"github.com/dedeez14/goforge/internal/usecase"
+	"github.com/dedeez14/goforge/pkg/i18n"
 	"github.com/dedeez14/goforge/pkg/observability"
 	"github.com/dedeez14/goforge/pkg/openapi"
 )
@@ -41,6 +42,12 @@ func Run(ctx context.Context) error {
 
 	log := logger.New(cfg.Log, cfg.App)
 	log.Info().Str("env", cfg.App.Env).Int("port", cfg.HTTP.Port).Msg("starting service")
+
+	// Pin the default i18n bundle so httpx.RespondError translates
+	// error codes by the request's Accept-Language. Apps may extend
+	// the bundle with their own codes before this point or replace
+	// it entirely with i18n.SetGlobal.
+	i18n.SetGlobal(i18n.DefaultBundle())
 
 	// OpenTelemetry: when an OTLP endpoint is configured, every
 	// request handler, outbox dispatch and (future) DB call emits a
