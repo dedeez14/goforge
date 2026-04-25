@@ -1,15 +1,21 @@
 // Package i18n provides simple, dependency-free message translation
 // for goforge error codes and validator messages. The design favours
-// determinism and zero allocations on the hot path:
+// determinism, zero allocations on the hot path, and strict
+// dependency injection (no package-level mutable state):
 //
 //   - A Bundle is an immutable map of (code, locale) → message,
-//     constructed once at boot and read concurrently afterwards.
-//   - The active locale travels on the request context — chosen
-//     either by middleware reading Accept-Language or by the app
-//     pinning a default for non-HTTP entry points (jobs, CLI).
+//     constructed once at the composition root and read concurrently
+//     afterwards.
+//   - The bundle and active locale travel on the request context —
+//     written by Middleware (or by manual calls to WithBundle /
+//     WithLocale), read by every translation site.
 //   - T(ctx, code, fallback) returns the translated message or the
-//     fallback when no translation is registered. Apps that don't
-//     wire i18n keep the original messages.
+//     fallback when no bundle was attached to ctx, no locale was
+//     resolved, or no entry was registered for that code.
+//
+// Apps that don't use i18n simply never call WithBundle/Middleware;
+// every T(...) call returns the supplied fallback. There is no
+// global state to leak across tests or boot orderings.
 //
 // The package intentionally does not cover RTL, plurals, gender or
 // number formatting. Use a richer library (golang.org/x/text/message,
@@ -102,58 +108,53 @@ func (b *Bundle) Lookup(code string, locale Locale) (string, bool) {
 func (b *Bundle) DefaultLocale() Locale { return b.defaultL }
 
 // ----------------------------------------------------------------
-// context-based locale routing
+// context-based bundle + locale routing
 
-type ctxKey struct{}
+type (
+	bundleCtxKey struct{}
+	localeCtxKey struct{}
+)
+
+// WithBundle attaches a *Bundle to ctx so downstream T(...) calls
+// can translate without taking a Bundle parameter.
+func WithBundle(ctx context.Context, b *Bundle) context.Context {
+	if b == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, bundleCtxKey{}, b)
+}
+
+// BundleFromContext returns the bundle attached to ctx, or nil when
+// none was set. Callers must handle the nil case.
+func BundleFromContext(ctx context.Context) *Bundle {
+	if b, ok := ctx.Value(bundleCtxKey{}).(*Bundle); ok {
+		return b
+	}
+	return nil
+}
 
 // WithLocale stores the active locale on ctx. Use in middleware or
 // at the start of a job/CLI invocation.
 func WithLocale(ctx context.Context, l Locale) context.Context {
-	return context.WithValue(ctx, ctxKey{}, l.Normalise())
+	return context.WithValue(ctx, localeCtxKey{}, l.Normalise())
 }
 
 // FromContext returns the locale stored on ctx, or "" when none was
 // set. Callers should treat "" as "use bundle default".
 func FromContext(ctx context.Context) Locale {
-	if v, ok := ctx.Value(ctxKey{}).(Locale); ok {
+	if v, ok := ctx.Value(localeCtxKey{}).(Locale); ok {
 		return v
 	}
 	return ""
 }
 
-// ----------------------------------------------------------------
-// global translator (optional)
-
-var (
-	globalMu     sync.RWMutex
-	globalBundle *Bundle
-)
-
-// SetGlobal pins a process-wide bundle so packages that don't take a
-// Bundle parameter (e.g. the response envelope) can still translate.
-// Apps that want strict dependency injection can ignore this and
-// pass *Bundle directly.
-func SetGlobal(b *Bundle) {
-	globalMu.Lock()
-	defer globalMu.Unlock()
-	globalBundle = b
-}
-
-// Global returns the registered global bundle, or nil when none was
-// set. Callers must handle the nil case.
-func Global() *Bundle {
-	globalMu.RLock()
-	defer globalMu.RUnlock()
-	return globalBundle
-}
-
-// T translates code into the locale stored on ctx, falling back to
-// the global bundle's default locale, then to the supplied fallback
+// T translates code into the locale attached to ctx, falling back
+// to the bundle's default locale, then to the supplied fallback
 // when no entry is registered. Returns fallback unchanged when no
-// global bundle is configured — apps that don't wire i18n keep their
+// bundle is attached to ctx — apps that don't wire i18n keep their
 // existing English messages.
 func T(ctx context.Context, code, fallback string) string {
-	b := Global()
+	b := BundleFromContext(ctx)
 	if b == nil {
 		return fallback
 	}

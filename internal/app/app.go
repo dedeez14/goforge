@@ -43,11 +43,11 @@ func Run(ctx context.Context) error {
 	log := logger.New(cfg.Log, cfg.App)
 	log.Info().Str("env", cfg.App.Env).Int("port", cfg.HTTP.Port).Msg("starting service")
 
-	// Pin the default i18n bundle so httpx.RespondError translates
-	// error codes by the request's Accept-Language. Apps may extend
-	// the bundle with their own codes before this point or replace
-	// it entirely with i18n.SetGlobal.
-	i18n.SetGlobal(i18n.DefaultBundle())
+	// Construct the i18n bundle here at the composition root. It
+	// flows down explicitly via server.New into the request-scoped
+	// middleware; downstream code reads it from c.UserContext()
+	// rather than any package-level global.
+	i18nBundle := i18n.DefaultBundle()
 
 	// OpenTelemetry: when an OTLP endpoint is configured, every
 	// request handler, outbox dispatch and (future) DB call emits a
@@ -114,7 +114,7 @@ func Run(ctx context.Context) error {
 		Menus:       handler.NewMenuHandler(menuUC, accessUC),
 	}
 
-	app := server.New(cfg, log)
+	app := server.New(cfg, log, i18nBundle)
 
 	// Platform features (idempotency, outbox, realtime, openapi, metrics).
 	plat := platform.Build(app, pool, cfg.Platform, openapi.Info{

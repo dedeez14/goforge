@@ -58,27 +58,37 @@ func TestPickLocale_HonoursOrder(t *testing.T) {
 	}
 }
 
-func TestT_FallsBackWhenNoGlobal(t *testing.T) {
-	// Reset global to nil for this test.
-	SetGlobal(nil)
+func TestT_FallsBackWhenNoBundleOnContext(t *testing.T) {
 	if got := T(context.Background(), "err.x", "fallback"); got != "fallback" {
 		t.Fatalf("expected fallback, got %q", got)
 	}
 }
 
-func TestT_TranslatesViaGlobal(t *testing.T) {
+func TestT_TranslatesViaContextBundle(t *testing.T) {
 	b := NewBundle(LocaleEN)
 	b.Add("err.x", LocaleID, "pesan id")
-	SetGlobal(b)
-	defer SetGlobal(nil)
+	b.Add("err.x", LocaleEN, "english msg")
 
-	ctx := WithLocale(context.Background(), LocaleID)
+	ctx := WithBundle(context.Background(), b)
+	ctx = WithLocale(ctx, LocaleID)
 	if got := T(ctx, "err.x", "fallback en"); got != "pesan id" {
 		t.Fatalf("expected pesan id, got %q", got)
 	}
-	// No locale on ctx → bundle default ("en") which has no entry → fallback.
-	if got := T(context.Background(), "err.x", "fallback en"); got != "fallback en" {
-		t.Fatalf("expected fallback, got %q", got)
+	// Bundle on ctx but no locale → bundle default (EN).
+	ctx2 := WithBundle(context.Background(), b)
+	if got := T(ctx2, "err.x", "fallback en"); got != "english msg" {
+		t.Fatalf("expected english msg, got %q", got)
+	}
+	// Unknown code → fallback unchanged.
+	if got := T(ctx, "err.unknown", "fallback en"); got != "fallback en" {
+		t.Fatalf("expected fallback for unknown code, got %q", got)
+	}
+}
+
+func TestWithBundle_NilIsNoOp(t *testing.T) {
+	ctx := WithBundle(context.Background(), nil)
+	if BundleFromContext(ctx) != nil {
+		t.Fatalf("expected nil bundle to leave ctx untouched")
 	}
 }
 

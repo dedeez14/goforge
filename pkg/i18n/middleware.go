@@ -6,15 +6,19 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// Middleware reads the Accept-Language header and stores the first
-// supported locale on the request context. Supported locales are
-// matched via primary subtag only ("en-US" → "en") against the set
-// passed in. When no header is present, or no language matches, the
-// default locale is stored.
+// Middleware reads the Accept-Language header and attaches both the
+// resolved locale and the supplied bundle to c.UserContext(). Every
+// downstream handler can then call i18n.T(c.UserContext(), code,
+// fallback) to translate without needing the bundle as a parameter.
 //
-// The middleware is independent of any specific Bundle so the same
-// instance can serve multiple bundles in tests.
-func Middleware(defaultL Locale, supported ...Locale) fiber.Handler {
+// Supported locales are matched via primary subtag only ("en-US" →
+// "en") against the set passed in. When no header is present, or no
+// language matches, the default locale is stored.
+//
+// Passing a nil bundle is a no-op apart from the locale resolution,
+// which is harmless: T() with no bundle on ctx returns the supplied
+// fallback message unchanged.
+func Middleware(bundle *Bundle, defaultL Locale, supported ...Locale) fiber.Handler {
 	allow := make(map[Locale]struct{}, len(supported)+1)
 	for _, l := range supported {
 		allow[l.Normalise()] = struct{}{}
@@ -30,7 +34,11 @@ func Middleware(defaultL Locale, supported ...Locale) fiber.Handler {
 				chosen = l
 			}
 		}
-		c.SetUserContext(WithLocale(c.UserContext(), chosen))
+		ctx := WithLocale(c.UserContext(), chosen)
+		if bundle != nil {
+			ctx = WithBundle(ctx, bundle)
+		}
+		c.SetUserContext(ctx)
 		return c.Next()
 	}
 }
