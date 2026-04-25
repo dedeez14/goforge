@@ -29,7 +29,12 @@ type TracingConfig struct {
 	ServiceName string
 	Version     string
 	Environment string
-	SampleRatio float64 // 0.0 = never, 1.0 = always; default 0.1 in prod, 1.0 elsewhere
+	// SampleRatio is the fraction of spans to record. 0.0 = never sample,
+	// 1.0 = always sample. Negative values are coerced to 1.0 (treated as
+	// "unset"). The application is expected to set a sensible default
+	// (e.g. 0.1 in production, 1.0 elsewhere) — InitTracing does not
+	// silently override an explicit 0.
+	SampleRatio float64
 	Headers     map[string]string
 }
 
@@ -84,7 +89,7 @@ func InitTracing(ctx context.Context, cfg TracingConfig) (Shutdown, error) {
 	}
 
 	ratio := cfg.SampleRatio
-	if ratio <= 0 {
+	if ratio < 0 {
 		ratio = 1.0
 	}
 

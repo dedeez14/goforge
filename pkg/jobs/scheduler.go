@@ -77,6 +77,9 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 		dues = append(dues, d)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 
 	for _, d := range dues {
 		_, err := s.Queue.Enqueue(ctx, d.kind, d.payload, EnqueueOptions{
