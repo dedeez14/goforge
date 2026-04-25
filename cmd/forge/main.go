@@ -99,6 +99,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	dsn := fs.String("dsn", os.Getenv("GOFORGE_DATABASE_DSN"), "Postgres DSN to ping")
 	port := fs.Int("port", 8080, "API port to verify is reachable")
 	apiURL := fs.String("url", "", "API base URL to verify is responding (e.g. http://localhost:8080)")
+	skipVuln := fs.Bool("skip-vuln", false, "skip the govulncheck pass even if it is installed")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -116,6 +117,10 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		checks = append(checks, checkAPI(ctx, *apiURL))
 	}
 	checks = append(checks, checkSecretStrength("GOFORGE_JWT_SECRET", 32))
+	checks = append(checks, checkEnvSanity())
+	if !*skipVuln {
+		checks = append(checks, checkGovulncheck(ctx))
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	failures := 0
@@ -196,6 +201,62 @@ func checkSecretStrength(env string, min int) checkResult {
 		return checkResult{name: env, ok: false, detail: fmt.Sprintf("only %d chars (need >= %d)", len(v), min)}
 	}
 	return checkResult{name: env, ok: true, detail: fmt.Sprintf("%d chars", len(v))}
+}
+
+// checkEnvSanity flags the most common deployment foot-guns that
+// don't need a DB connection: production env with wildcard CORS,
+// localhost DSN in production, missing admin token while binding
+// 0.0.0.0. Mirrors config.Config.Verify so operators see the same
+// problems from the CLI without booting the server.
+func checkEnvSanity() checkResult {
+	env := strings.ToLower(os.Getenv("GOFORGE_APP_ENV"))
+	if env == "" {
+		env = "development"
+	}
+	if env != "production" {
+		return checkResult{name: "env sanity", ok: true, detail: env + " (lenient checks)"}
+	}
+	var issues []string
+	if cors := os.Getenv("GOFORGE_SECURITY_CORS_ALLOW_ORIGINS"); cors == "" || cors == "*" {
+		issues = append(issues, "CORS wildcard")
+	}
+	if dsn := os.Getenv("GOFORGE_DATABASE_DSN"); strings.Contains(dsn, "@localhost") || strings.Contains(dsn, "@127.0.0.1") {
+		issues = append(issues, "localhost DSN in prod")
+	}
+	if os.Getenv("GOFORGE_PLATFORM_ADMIN_TOKEN") == "" {
+		issues = append(issues, "platform.admin_token unset")
+	}
+	if len(issues) == 0 {
+		return checkResult{name: "env sanity", ok: true, detail: "production: clean"}
+	}
+	return checkResult{name: "env sanity", ok: false, detail: strings.Join(issues, "; ")}
+}
+
+// checkGovulncheck runs `govulncheck ./...` against the working
+// module when the binary is on PATH. It is best-effort: a missing
+// `govulncheck` is reported as a soft skip, not a failure, since
+// not every developer wants the dependency installed.
+func checkGovulncheck(ctx context.Context) checkResult {
+	bin, err := exec.LookPath("govulncheck")
+	if err != nil {
+		return checkResult{name: "govulncheck", ok: true, detail: "skipped (not installed: go install golang.org/x/vuln/cmd/govulncheck@latest)"}
+	}
+	parent, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(parent, bin, "./...")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// govulncheck exits non-zero when vulnerabilities are found.
+		// Surface the first interesting line so operators have a
+		// pointer instead of a wall of text.
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		first := lines[0]
+		if len(first) > 120 {
+			first = first[:120] + "…"
+		}
+		return checkResult{name: "govulncheck", ok: false, detail: "vulnerabilities found - run `govulncheck ./...` for details (" + first + ")"}
+	}
+	return checkResult{name: "govulncheck", ok: true, detail: "no known vulnerabilities"}
 }
 
 func extractHost(dsn string) string {
