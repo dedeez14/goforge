@@ -63,6 +63,20 @@ func RequirePermission(code string, resolver PermissionResolver, tenant TenantRe
 		if uid == uuid.Nil {
 			return httpx.RespondError(c, errs.Unauthorized("auth.missing_user", "authentication required"))
 		}
+		// API-key short-circuit: when the request was authenticated
+		// via an API key, the bearer's scopes are the effective
+		// permissions. We skip the RBAC role lookup entirely so a
+		// service key with a narrow scope can never piggyback on
+		// the owning user's broader role assignments.
+		if scopes := APIKeyScopesFromCtx(c); scopes != nil {
+			c.Locals(CtxKeyPermissions, scopes)
+			for _, s := range scopes {
+				if s == "*" || s == code {
+					return c.Next()
+				}
+			}
+			return httpx.RespondError(c, errs.Forbidden("rbac.permission_required", "missing required permission: "+code))
+		}
 		codes, err := resolver.EffectivePermissions(c.UserContext(), uid, tenant(c))
 		if err != nil {
 			return httpx.RespondError(c, err)
@@ -91,6 +105,18 @@ func RequireAnyPermission(codes []string, resolver PermissionResolver, tenant Te
 		uid := UserIDFromCtx(c)
 		if uid == uuid.Nil {
 			return httpx.RespondError(c, errs.Unauthorized("auth.missing_user", "authentication required"))
+		}
+		if scopes := APIKeyScopesFromCtx(c); scopes != nil {
+			c.Locals(CtxKeyPermissions, scopes)
+			for _, s := range scopes {
+				if s == "*" {
+					return c.Next()
+				}
+				if _, ok := wanted[s]; ok {
+					return c.Next()
+				}
+			}
+			return httpx.RespondError(c, errs.Forbidden("rbac.permission_required", "missing required permission"))
 		}
 		held, err := resolver.EffectivePermissions(c.UserContext(), uid, tenant(c))
 		if err != nil {

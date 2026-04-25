@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/dedeez14/goforge/internal/adapter/http/dto"
 	"github.com/dedeez14/goforge/internal/adapter/http/handler"
 	pgrepo "github.com/dedeez14/goforge/internal/adapter/repository/postgres"
@@ -87,6 +89,7 @@ func Run(ctx context.Context) error {
 	roles := pgrepo.NewRoleRepository(pool)
 	userRoles := pgrepo.NewUserRoleRepository(pool)
 	menus := pgrepo.NewMenuRepository(pool)
+	apiKeys := pgrepo.NewAPIKeyRepository(pool)
 
 	// Use-cases.
 	authUC := usecase.NewAuthUseCase(users, hasher, tokens, refreshStore, log)
@@ -97,6 +100,15 @@ func Run(ctx context.Context) error {
 	roleUC := usecase.NewRoleUseCase(roles, permissions, nil, log)
 	accessUC := usecase.NewUserAccessUseCase(userRoles, roles, nil, log)
 	menuUC := usecase.NewMenuUseCase(menus, nil, log)
+	// API-key env tag: "live" in production, otherwise the configured
+	// app environment ("staging", "dev", ...). Included in the visible
+	// prefix so operators can tell at a glance which environment
+	// minted a leaked key.
+	apiKeyEnv := cfg.App.Env
+	if cfg.IsProduction() {
+		apiKeyEnv = "live"
+	}
+	apiKeyUC := usecase.NewAPIKeyUseCase(apiKeys, apiKeyEnv)
 
 	// Handlers.
 	handlers := server.Handlers{
@@ -105,6 +117,7 @@ func Run(ctx context.Context) error {
 		Permissions: handler.NewPermissionHandler(permUC),
 		Roles:       handler.NewRoleHandler(roleUC, accessUC),
 		Menus:       handler.NewMenuHandler(menuUC, accessUC),
+		APIKeys:     handler.NewAPIKeyHandler(apiKeyUC),
 	}
 
 	app := server.New(cfg, log)
@@ -120,6 +133,22 @@ func Run(ctx context.Context) error {
 
 	server.Register(app, handlers, tokens, server.AccessControl{
 		Resolver: accessUC,
+		// Adapter from APIKeyUseCase.Authenticate (returns *apikey.Key)
+		// to the middleware's APIKeyAuthenticate signature (returns
+		// uuid.UUID + []string). When the key has no owner the
+		// subject falls back to the key's own ID so request logs
+		// still carry a stable identity.
+		APIKeyAuth: func(ctx context.Context, plaintext string) (uuid.UUID, []string, error) {
+			k, err := apiKeyUC.Authenticate(ctx, plaintext)
+			if err != nil {
+				return uuid.Nil, nil, err
+			}
+			subject := k.ID
+			if k.UserID != nil {
+				subject = *k.UserID
+			}
+			return subject, k.Scopes, nil
+		},
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.HTTP.Host, cfg.HTTP.Port)
@@ -220,5 +249,24 @@ func registerOpenAPI(doc *openapi.Document) {
 		Summary: "Return the authenticated user", Tags: []string{"auth"},
 		ResponseType: dto.UserResponse{},
 		ResponseCode: 200, RequiresAuth: true,
+	})
+	doc.AddOperation(openapi.Operation{
+		Method: "GET", Path: "/api/v1/api-keys",
+		Summary: "List the caller's API keys", Tags: []string{"api-keys"},
+		ResponseType: []dto.APIKeyResponse{},
+		ResponseCode: 200, RequiresAuth: true,
+	})
+	doc.AddOperation(openapi.Operation{
+		Method: "POST", Path: "/api/v1/api-keys",
+		Summary:      "Mint a new API key (plaintext returned exactly once)",
+		Tags:         []string{"api-keys"},
+		RequestType:  dto.CreateAPIKeyRequest{},
+		ResponseType: dto.CreateAPIKeyResponse{},
+		ResponseCode: 201, RequiresAuth: true,
+	})
+	doc.AddOperation(openapi.Operation{
+		Method: "DELETE", Path: "/api/v1/api-keys/{id}",
+		Summary: "Revoke an API key by id", Tags: []string{"api-keys"},
+		ResponseCode: 204, RequiresAuth: true,
 	})
 }
