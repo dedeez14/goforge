@@ -270,6 +270,32 @@ func TestRevoke_AcceptsOwner(t *testing.T) {
 	}
 }
 
+// TestCreate_StampsTimestamps is the regression test for the
+// Devin Review finding on PR #16: the response DTO previously
+// emitted CreatedAt as the zero time because the in-memory struct
+// was never reconciled with the DB-assigned NOW(). The use-case
+// now stamps the clock value before handing the struct to the
+// repo, so the persisted value and the response value match.
+func TestCreate_StampsTimestamps(t *testing.T) {
+	repo := newFakeRepo()
+	now := time.Date(2025, 6, 15, 9, 30, 0, 0, time.UTC)
+	uc := newUC(repo, now)
+
+	res, err := uc.Create(context.Background(), CreateInput{Name: "k"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if res.Key.CreatedAt.IsZero() {
+		t.Fatalf("CreatedAt must be stamped, got zero time")
+	}
+	if !res.Key.CreatedAt.Equal(now) {
+		t.Fatalf("CreatedAt should match clock; got %s want %s", res.Key.CreatedAt, now)
+	}
+	if !res.Key.UpdatedAt.Equal(now) {
+		t.Fatalf("UpdatedAt should match clock; got %s want %s", res.Key.UpdatedAt, now)
+	}
+}
+
 func TestSanitiseScopes_DedupsAndPreservesOrder(t *testing.T) {
 	got := sanitiseScopes([]string{"a", "b", "", "a", "c"})
 	want := []string{"a", "b", "c"}

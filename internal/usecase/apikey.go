@@ -65,6 +65,10 @@ func (u *APIKeyUseCase) Create(ctx context.Context, in CreateInput) (*CreateResu
 	if err != nil {
 		return nil, errs.Wrap(errs.KindInternal, "apikey.generate", "failed to mint api key", err)
 	}
+	// Stamp timestamps from the injectable clock so the in-memory
+	// struct stays consistent with what hits the DB and the
+	// response DTO carries a real created_at, not the zero time.
+	now := u.clock().UTC()
 	k := &apikey.Key{
 		ID:        uuid.New(),
 		Prefix:    gen.Prefix,
@@ -74,6 +78,8 @@ func (u *APIKeyUseCase) Create(ctx context.Context, in CreateInput) (*CreateResu
 		TenantID:  in.TenantID,
 		Scopes:    sanitiseScopes(in.Scopes),
 		ExpiresAt: in.ExpiresAt,
+		CreatedAt: now,
+		UpdatedAt: now,
 		CreatedBy: in.CreatedBy,
 	}
 	if err := u.repo.Create(ctx, k); err != nil {

@@ -14,12 +14,17 @@ import (
 )
 
 const (
+	// Timestamps come from the use-case clock (parameter $9) so the
+	// in-memory Key struct stays consistent with what was persisted -
+	// the use-case relies on the same value to populate the response
+	// DTO. Switching to NOW() would force a RETURNING / re-fetch round
+	// trip for no benefit.
 	qAPIKeyInsert = `
 INSERT INTO api_keys (
     id, prefix, hash, name, user_id, tenant_id, scopes,
     expires_at, created_at, updated_at, created_by, updated_by
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), $9, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $10
 )`
 	qAPIKeySelectActive = `
 SELECT id, prefix, hash, name, user_id, tenant_id, scopes,
@@ -71,10 +76,19 @@ func (r *APIKeyRepository) Create(ctx context.Context, k *apikey.Key) error {
 	if k.Scopes == nil {
 		k.Scopes = []string{}
 	}
+	if k.CreatedAt.IsZero() {
+		// Defensive default for callers that bypass the use-case
+		// (e.g. seed scripts). Production paths set this in the
+		// use-case so the response DTO is never zero-valued.
+		k.CreatedAt = time.Now().UTC()
+	}
+	if k.UpdatedAt.IsZero() {
+		k.UpdatedAt = k.CreatedAt
+	}
 	_, err := r.pool.Exec(ctx, qAPIKeyInsert,
 		k.ID, k.Prefix, k.Hash, k.Name,
 		actorOrNil(k.UserID), actorOrNil(k.TenantID), k.Scopes,
-		k.ExpiresAt, actorOrNil(k.CreatedBy),
+		k.ExpiresAt, k.CreatedAt, actorOrNil(k.CreatedBy),
 	)
 	if err != nil {
 		return errs.Wrap(errs.KindInternal, "apikey.create", "failed to create api key", err)
