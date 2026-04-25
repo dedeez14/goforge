@@ -29,14 +29,19 @@ type CreateMenuInput struct {
 
 // UpdateMenuInput is the payload for updating a Menu. Code is
 // immutable; rename instead by deleting and recreating.
+//
+// Every mutable field is a pointer so callers can express "leave
+// this column untouched" by passing nil. Treating zero values
+// (false, 0, "") as "field omitted" would silently hide a menu the
+// moment a client sent a partial PATCH that lacked is_visible.
 type UpdateMenuInput struct {
 	ParentID                *uuid.UUID
-	Label                   string
-	Icon                    string
-	Path                    string
-	SortOrder               int
+	Label                   *string
+	Icon                    *string
+	Path                    *string
+	SortOrder               *int
 	RequiredPermissionCode  *string
-	IsVisible               bool
+	IsVisible               *bool
 	Metadata                json.RawMessage
 	UnsetParent             bool // explicit "make this a root node"
 	UnsetRequiredPermission bool // explicit "remove the permission gate"
@@ -100,13 +105,25 @@ func (uc *MenuUseCase) Update(ctx context.Context, id uuid.UUID, in UpdateMenuIn
 		return nil, err
 	}
 	updated := *current
-	if strings.TrimSpace(in.Label) != "" {
-		updated.Label = strings.TrimSpace(in.Label)
+	if in.Label != nil {
+		label := strings.TrimSpace(*in.Label)
+		if label == "" {
+			return nil, errs.InvalidInput("menu.label_required", "menu label is required")
+		}
+		updated.Label = label
 	}
-	updated.Icon = strings.TrimSpace(in.Icon)
-	updated.Path = strings.TrimSpace(in.Path)
-	updated.SortOrder = in.SortOrder
-	updated.IsVisible = in.IsVisible
+	if in.Icon != nil {
+		updated.Icon = strings.TrimSpace(*in.Icon)
+	}
+	if in.Path != nil {
+		updated.Path = strings.TrimSpace(*in.Path)
+	}
+	if in.SortOrder != nil {
+		updated.SortOrder = *in.SortOrder
+	}
+	if in.IsVisible != nil {
+		updated.IsVisible = *in.IsVisible
+	}
 	if in.UnsetParent {
 		updated.ParentID = nil
 	} else if in.ParentID != nil {
@@ -219,24 +236,34 @@ func (uc *MenuUseCase) VisibleTree(ctx context.Context, tenantID *uuid.UUID, use
 			visible = append(visible, m)
 		}
 	}
-	// A child whose parent was filtered out must also disappear, so
-	// rebuild the parent index from the survivors and prune any
-	// child whose parent is missing.
+	// A child whose parent was filtered out must also disappear.
+	// One prune pass only catches direct children — for deeper trees
+	// (≥3 levels), a hidden root would still leak its grandchildren.
+	// We loop until the survivor set is stable.
 	idx := make(map[uuid.UUID]struct{}, len(visible))
 	for _, m := range visible {
 		idx[m.ID] = struct{}{}
 	}
-	pruned := make([]*menu.Menu, 0, len(visible))
-	for _, m := range visible {
-		if m.ParentID == nil {
-			pruned = append(pruned, m)
-			continue
+	for {
+		pruned := make([]*menu.Menu, 0, len(visible))
+		for _, m := range visible {
+			if m.ParentID == nil {
+				pruned = append(pruned, m)
+				continue
+			}
+			if _, ok := idx[*m.ParentID]; ok {
+				pruned = append(pruned, m)
+			}
 		}
-		if _, ok := idx[*m.ParentID]; ok {
-			pruned = append(pruned, m)
+		if len(pruned) == len(visible) {
+			return buildTree(pruned, nil), nil
+		}
+		visible = pruned
+		idx = make(map[uuid.UUID]struct{}, len(visible))
+		for _, m := range visible {
+			idx[m.ID] = struct{}{}
 		}
 	}
-	return buildTree(pruned, nil), nil
 }
 
 // validateMenuCode enforces a sane code shape: short, no
