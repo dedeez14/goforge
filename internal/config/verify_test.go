@@ -47,26 +47,69 @@ func TestVerify_HappyPath(t *testing.T) {
 	}
 }
 
-func TestVerify_FailsForWeakJWTSecret(t *testing.T) {
+// TestVerify_FailsForUniversallyWeakJWTSecret covers the three
+// failure modes that fire in every environment: too short, all-same
+// character (zero entropy), and the all-zero placeholder (also
+// all-same). These are absolute minimums and never gated by env.
+func TestVerify_FailsForUniversallyWeakJWTSecret(t *testing.T) {
 	cases := map[string]string{
-		"too short":          "short",
-		"known weak":         "changeme",
-		"all same":           strings.Repeat("a", 64),
-		"empty":              "",
-		"32 of zero":         "00000000000000000000000000000000",
-		"env.example sample": "change-me-to-a-very-long-random-string-of-32+chars",
-		"docker-compose":     "please-change-me-to-a-very-long-random-secret-key",
+		"too short":  "short",
+		"all same":   strings.Repeat("a", 64),
+		"empty":      "",
+		"32 of zero": "00000000000000000000000000000000",
 	}
 	for name, secret := range cases {
-		t.Run(name, func(t *testing.T) {
+		t.Run(name+"/production", func(t *testing.T) {
 			cfg := baseProdConfig()
 			cfg.JWT.Secret = secret
 			err := cfg.Verify()
-			if err == nil {
-				t.Fatalf("expected Verify to fail for %q", secret)
-			}
-			if !strings.Contains(err.Error(), "jwt.secret") {
+			if err == nil || !strings.Contains(err.Error(), "jwt.secret") {
 				t.Fatalf("expected jwt.secret problem; got %v", err)
+			}
+		})
+		t.Run(name+"/development", func(t *testing.T) {
+			cfg := baseProdConfig()
+			cfg.App.Env = "development"
+			cfg.JWT.Secret = secret
+			err := cfg.Verify()
+			if err == nil || !strings.Contains(err.Error(), "jwt.secret") {
+				t.Fatalf("expected jwt.secret problem in dev too; got %v", err)
+			}
+		})
+	}
+}
+
+// TestVerify_ShippedSamplePlaceholders covers the .env.example and
+// docker-compose JWT defaults. They are *only* rejected in
+// production - allowing them in development is the whole point of
+// shipping them as samples.
+func TestVerify_ShippedSamplePlaceholders(t *testing.T) {
+	placeholders := []string{
+		"change-me-to-a-very-long-random-string-of-32+chars", // .env.example
+		"please-change-me-to-a-very-long-random-secret-key",  // docker-compose
+		"changeme",
+	}
+	for _, secret := range placeholders {
+		// Skip ones that are too short - those are caught by the
+		// universal check, not the placeholder catalogue.
+		if len(secret) < 32 {
+			continue
+		}
+		t.Run(secret+"/production", func(t *testing.T) {
+			cfg := baseProdConfig()
+			cfg.JWT.Secret = secret
+			err := cfg.Verify()
+			if err == nil || !strings.Contains(err.Error(), "jwt.secret") {
+				t.Fatalf("prod must reject sample placeholder %q; got %v", secret, err)
+			}
+		})
+		t.Run(secret+"/development", func(t *testing.T) {
+			cfg := baseProdConfig()
+			cfg.App.Env = "development"
+			cfg.JWT.Secret = secret
+			if err := cfg.Verify(); err != nil {
+				t.Fatalf("dev must accept sample placeholder %q so `cp .env.example .env && make dev` works; got %v",
+					secret, err)
 			}
 		})
 	}
@@ -102,9 +145,13 @@ func TestVerify_RejectsTrustedProxiesMisconfig(t *testing.T) {
 
 func TestVerify_DevelopmentIsLenient(t *testing.T) {
 	// Same problematic configuration but in development - only
-	// universal checks (weak JWT secret, argon params) should fire.
+	// universal checks (length, all-same, argon params, ttl, body)
+	// fire. Sample-placeholder JWT secret, wildcard CORS, localhost
+	// DSN, missing admin token are all tolerated so the documented
+	// `cp .env.example .env && make dev` flow works out of the box.
 	cfg := baseProdConfig()
 	cfg.App.Env = "development"
+	cfg.JWT.Secret = "change-me-to-a-very-long-random-string-of-32+chars"
 	cfg.Security.CORSAllowOrigins = "*"
 	cfg.Database.DSN = "postgres://app:pw@localhost:5432/app"
 	cfg.Platform.AdminToken = ""

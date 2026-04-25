@@ -232,18 +232,26 @@ func checkEnvSanity() checkResult {
 	return checkResult{name: "env sanity", ok: false, detail: strings.Join(issues, "; ")}
 }
 
-// checkGovulncheck runs `govulncheck ./...` against the working
-// module when the binary is on PATH. It is best-effort: a missing
-// `govulncheck` is reported as a soft skip, not a failure, since
-// not every developer wants the dependency installed.
+// checkGovulncheck runs `govulncheck ./...` against the module
+// rooted at the nearest go.mod when the binary is on PATH. It is
+// best-effort: a missing `govulncheck` is reported as a soft skip,
+// not a failure, since not every developer wants the dependency
+// installed. Likewise, an inability to locate the module root
+// (forge invoked from somewhere outside any Go module) is a soft
+// skip rather than a hard failure.
 func checkGovulncheck(ctx context.Context) checkResult {
 	bin, err := exec.LookPath("govulncheck")
 	if err != nil {
 		return checkResult{name: "govulncheck", ok: true, detail: "skipped (not installed: go install golang.org/x/vuln/cmd/govulncheck@latest)"}
 	}
+	root, err := repoRoot()
+	if err != nil {
+		return checkResult{name: "govulncheck", ok: true, detail: "skipped (no go.mod found from the current directory)"}
+	}
 	parent, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(parent, bin, "./...")
+	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		// govulncheck exits non-zero when vulnerabilities are found.

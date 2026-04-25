@@ -30,11 +30,20 @@ func (c *Config) Verify() error {
 
 	prod := c.IsProduction()
 
-	// JWT secret entropy / known-bad values.
+	// JWT secret entropy: length and all-same-character checks fire
+	// for every environment (they are absolute minimums). The
+	// sample-placeholder lookup is production-only on purpose - the
+	// .env.example shipped with the repo intentionally uses one of
+	// the catalogued strings so `cp .env.example .env && make dev`
+	// works without the developer having to mint a real secret.
 	check(isWeakSecret(c.JWT.Secret),
 		"jwt.secret looks weak: use at least 32 random bytes (e.g. `openssl rand -base64 48`)")
 
 	if prod {
+		if _, sample := knownWeakSecrets[c.JWT.Secret]; sample {
+			problems = append(problems,
+				"jwt.secret matches a shipped sample placeholder (.env.example / docker-compose.yml); rotate it before deploying to production")
+		}
 		// Production must not run with the dev/sample defaults.
 		check(strings.EqualFold(c.JWT.Issuer, "goforge"),
 			"jwt.issuer is the default 'goforge'; set it to your service name in production")
@@ -101,11 +110,13 @@ var knownWeakSecrets = map[string]struct{}{
 	"00000000000000000000000000000000":                   {},
 }
 
+// isWeakSecret captures the universal failure modes that should
+// never pass any environment: too short or zero-entropy (all-same-
+// character). Catalogue lookup against knownWeakSecrets is *not*
+// done here - that gate is production-only because .env.example is
+// allowed to ship a placeholder for `make dev`.
 func isWeakSecret(s string) bool {
 	if len(s) < 32 {
-		return true
-	}
-	if _, bad := knownWeakSecrets[s]; bad {
 		return true
 	}
 	// All-same-character secrets ("aaaa...") have ~zero entropy.
