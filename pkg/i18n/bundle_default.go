@@ -66,9 +66,14 @@ func DefaultBundle() *Bundle {
 		LocaleEN: "authentication required",
 		LocaleID: "autentikasi diperlukan",
 	})
+	// auth.invalid is emitted from the refresh path when the token
+	// is unknown to the rotation store - i.e. revoked or already
+	// consumed - NOT when it is expired (jwt.invalid covers that).
+	// Matching the message to the actual cause keeps client retry
+	// logic honest.
 	b.AddMany("auth.invalid", map[Locale]string{
-		LocaleEN: "invalid or expired token",
-		LocaleID: "token tidak valid atau telah kedaluwarsa",
+		LocaleEN: "invalid or revoked refresh token",
+		LocaleID: "refresh token tidak valid atau telah dicabut",
 	})
 	b.AddMany("auth.invalid_subject", map[Locale]string{
 		LocaleEN: "invalid token subject",
