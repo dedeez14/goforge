@@ -56,12 +56,13 @@ func Run(ctx context.Context) error {
 		KeyLength:   security.DefaultArgon2idParams.KeyLength,
 	})
 	tokens := security.NewTokenIssuer(cfg.JWT)
+	refreshStore := security.NewPostgresRefreshStore(pool)
 
 	// Repositories.
 	users := pgrepo.NewUserRepository(pool)
 
 	// Use-cases.
-	authUC := usecase.NewAuthUseCase(users, hasher, tokens, log)
+	authUC := usecase.NewAuthUseCase(users, hasher, tokens, refreshStore, log)
 
 	// Handlers.
 	handlers := server.Handlers{
