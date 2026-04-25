@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,21 +19,40 @@ import (
 // about than a 5-field expression.
 //
 // Atomicity contract: the new job row and the schedule's
-// next_run_at advancement are written inside the same transaction,
-// so a commit failure leaves both untouched and the next tick is
-// free to retry without producing duplicate work.
+// next_run_at advancement are written inside the same transaction
+// whenever the configured Queue supports a transactional enqueue
+// (implements the TxEnqueuer interface — *Postgres does). A commit
+// failure then leaves both untouched and the next tick is free to
+// retry without producing duplicate work. When the Queue does not
+// support transactional enqueue the Scheduler falls back to a
+// non-atomic path and logs a warning on startup.
 type Scheduler struct {
 	Pool *pgxpool.Pool
 
-	// Queue is retained for API compatibility; the dispatcher now
-	// inserts directly into the same transaction as the schedule
-	// advancement, so this field is unused. It will be removed in
-	// the next major version bump.
+	// Queue is the enqueue target. Its Enqueue method is always
+	// honoured; if it additionally implements TxEnqueuer the
+	// Scheduler will use the transactional variant so the new job
+	// row and the schedule advancement commit atomically.
 	//
-	// Deprecated: leave nil; setting this has no effect.
+	// Leaving Queue nil makes the Scheduler default to a
+	// (*Postgres){Pool: s.Pool} behind the scenes — convenient for
+	// apps that only want the built-in Postgres backend.
 	Queue Queue
 
 	Logger zerolog.Logger
+}
+
+// TxEnqueuer is the optional interface a Queue may implement to
+// enqueue a job inside a caller-supplied pgx.Tx. When it is absent
+// Scheduler falls back to the Queue.Enqueue method, which does not
+// share the transaction.
+//
+// Implementations MUST accept an empty opts.DedupeKey (meaning "no
+// dedupe") and MUST translate a dedupe-key collision into
+// ErrDuplicate without aborting the transaction — on Postgres that
+// means ON CONFLICT DO NOTHING rather than catching 23505.
+type TxEnqueuer interface {
+	EnqueueTx(ctx context.Context, tx pgx.Tx, kind string, payload any, opts EnqueueOptions) (*Job, error)
 }
 
 // Run blocks until ctx is cancelled. It wakes every Tick to look for
@@ -40,6 +60,15 @@ type Scheduler struct {
 func (s *Scheduler) Run(ctx context.Context, tick time.Duration) error {
 	if tick <= 0 {
 		tick = 30 * time.Second
+	}
+	if s.Queue == nil {
+		// Default the Queue to the shipped Postgres implementation
+		// so Scheduler stays plug-and-play. The Postgres backend
+		// satisfies TxEnqueuer, so atomicity is preserved.
+		s.Queue = NewPostgres(s.Pool)
+	}
+	if _, ok := s.Queue.(TxEnqueuer); !ok {
+		s.Logger.Warn().Msg("Scheduler.Queue does not implement TxEnqueuer; enqueue and schedule advancement are NOT atomic. Consider switching to *jobs.Postgres or implementing EnqueueTx to avoid duplicate executions on transient commit failures.")
 	}
 	t := time.NewTicker(tick)
 	defer t.Stop()
@@ -57,8 +86,14 @@ func (s *Scheduler) Run(ctx context.Context, tick time.Duration) error {
 
 // dispatchDue is exposed for tests. Both the INSERT into jobs and
 // the UPDATE of job_schedules.next_run_at run on the same tx so
-// they commit atomically.
+// they commit atomically whenever the Queue implements TxEnqueuer.
 func (s *Scheduler) dispatchDue(ctx context.Context) error {
+	q := s.Queue
+	if q == nil {
+		q = NewPostgres(s.Pool)
+	}
+	txq, _ := q.(TxEnqueuer)
+
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -96,29 +131,29 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 	}
 
 	for _, d := range dues {
-		// Use a deterministic dedupe key that does NOT depend on
-		// time.Now: if this transaction is retried after a transient
-		// commit failure the same key is reused, and the unique
-		// constraint on dedupe_key collapses retries into a single
-		// job rather than producing duplicates.
-		dedupeKey := "schedule:" + d.id + ":" + d.kind
-		// ON CONFLICT DO NOTHING (matching the partial index from
-		// migration 0005) keeps the transaction in a valid state when
-		// the row already exists. Catching error 23505 in Go is not
-		// safe here: a unique-violation puts Postgres into an aborted
-		// transaction state and the subsequent UPDATE would fail with
-		// "current transaction is aborted, commands ignored until end
-		// of transaction block".
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO jobs (queue, kind, payload, max_attempts, run_at, dedupe_key)
-			VALUES ($1, $2, $3, 5, now(), $4)
-			ON CONFLICT (queue, dedupe_key)
-			  WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running', 'failed')
-			DO NOTHING`,
-			d.queue, d.kind, d.payload, dedupeKey,
-		); err != nil {
-			s.Logger.Warn().Err(err).Str("schedule", d.name).Msg("enqueue from schedule failed")
-			return err
+		// Deterministic dedupe key that does NOT depend on time.Now:
+		// if this transaction is retried after a transient commit
+		// failure the same key is reused so the unique constraint
+		// collapses retries into a single job rather than producing
+		// duplicates.
+		opts := EnqueueOptions{
+			Queue:     d.queue,
+			DedupeKey: "schedule:" + d.id + ":" + d.kind,
+		}
+
+		if txq != nil {
+			if _, err := txq.EnqueueTx(ctx, tx, d.kind, d.payload, opts); err != nil && !errors.Is(err, ErrDuplicate) {
+				s.Logger.Warn().Err(err).Str("schedule", d.name).Msg("enqueue from schedule failed")
+				return err
+			}
+		} else {
+			// Non-atomic fallback: the Queue does not offer an
+			// in-tx variant, so call Enqueue on its own connection.
+			// We logged a warning about this in Run.
+			if _, err := q.Enqueue(ctx, d.kind, d.payload, opts); err != nil && !errors.Is(err, ErrDuplicate) {
+				s.Logger.Warn().Err(err).Str("schedule", d.name).Msg("enqueue from schedule failed")
+				continue
+			}
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE job_schedules SET next_run_at = now() + ($2 || ' seconds')::interval, updated_at = now() WHERE id = $1`,

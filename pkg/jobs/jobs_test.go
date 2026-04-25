@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 )
 
@@ -30,6 +31,16 @@ func (s *stubQueue) push(j *Job) {
 }
 
 func (s *stubQueue) Enqueue(_ context.Context, kind string, payload any, _ EnqueueOptions) (*Job, error) {
+	body, _ := json.Marshal(payload)
+	j := &Job{ID: uuid.New(), Kind: kind, Payload: body, MaxAttempts: 3, RunAt: time.Now()}
+	s.push(j)
+	return j, nil
+}
+
+// EnqueueTx satisfies TxEnqueuer so Scheduler sees stubQueue as a
+// transactional Queue in tests. The stub ignores the tx argument
+// because it is in-memory.
+func (s *stubQueue) EnqueueTx(_ context.Context, _ pgx.Tx, kind string, payload any, _ EnqueueOptions) (*Job, error) {
 	body, _ := json.Marshal(payload)
 	j := &Job{ID: uuid.New(), Kind: kind, Payload: body, MaxAttempts: 3, RunAt: time.Now()}
 	s.push(j)
