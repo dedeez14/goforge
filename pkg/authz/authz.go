@@ -2,20 +2,20 @@
 //
 // Most apps end up writing the same code three times:
 //
-//   1. "is this user an admin?" — sprinkled all over handlers
-//   2. "can this user write this object?" — duplicated per resource
-//   3. "log every privileged action" — frequently forgotten
+//  1. "is this user an admin?" — sprinkled all over handlers
+//  2. "can this user write this object?" — duplicated per resource
+//  3. "log every privileged action" — frequently forgotten
 //
 // authz centralises all three behind a single Allow(ctx, sub, act,
 // obj) call backed by a Casbin enforcer. The default model is the
 // classic RBAC-with-domains formulation:
 //
-//   p, sub, dom, obj, act
-//   g, sub, role, dom
+//	  p, sub, dom, obj, act
+//	  g, sub, role, dom
 //
-//	"in tenant <dom>, subject <sub> can do <act> on <obj> when there
-//	 exists a policy match (sub, dom, obj, act) — directly or via a
-//	 role granted in <dom>."
+//		"in tenant <dom>, subject <sub> can do <act> on <obj> when there
+//		 exists a policy match (sub, dom, obj, act) — directly or via a
+//		 role granted in <dom>."
 //
 // Policies live in a Postgres table loaded by a small adapter; on
 // startup the enforcer caches them in memory, so authorisation

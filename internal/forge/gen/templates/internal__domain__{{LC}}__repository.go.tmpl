@@ -1,0 +1,17 @@
+package {{.Lower}}
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
+
+// Repository is the persistence contract. The pgx implementation
+// lives in internal/adapter/repository/postgres/{{.Lower}}.go.
+type Repository interface {
+	Create(ctx context.Context, v *{{.Name}}) error
+	FindByID(ctx context.Context, id uuid.UUID) (*{{.Name}}, error)
+	List(ctx context.Context, limit, offset int) ([]{{.Name}}, error)
+	Update(ctx context.Context, v *{{.Name}}) error
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+}

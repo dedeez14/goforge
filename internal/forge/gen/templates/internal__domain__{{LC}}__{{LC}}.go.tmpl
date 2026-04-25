@@ -1,0 +1,30 @@
+// Package {{.Lower}} is the {{.Name}} aggregate.
+package {{.Lower}}
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+
+	"{{.Module}}/pkg/dbx"
+	"{{.Module}}/pkg/errs"
+)
+
+// {{.Name}} is the canonical entity for the {{.Plural}} table. It
+// embeds dbx.Audit so every {{.Name}} carries the standard
+// created_at/updated_at/deleted_at + actor columns.
+type {{.Name}} struct {
+	ID   uuid.UUID
+	Name string
+	dbx.Audit
+}
+
+// Errors. Add domain-specific ones here as the aggregate grows.
+var (
+	ErrNotFound = errs.NotFound("{{.Lower}}.not_found", "{{.Lower}} not found")
+	ErrConflict = errs.Conflict("{{.Lower}}.conflict", "{{.Lower}} conflict")
+)
+
+// suppress unused-import for the rare resource that doesn't need
+// time.Time directly.
+var _ = time.Time{}

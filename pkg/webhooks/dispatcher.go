@@ -37,9 +37,9 @@ type EndpointStore interface {
 // a delivery job per (event, endpoint) pair. The actual HTTP POST is
 // performed by the jobs.Runner via Dispatcher.Deliver.
 type Dispatcher struct {
-	Queue    jobs.Queue
-	Store    EndpointStore
-	HTTP     *http.Client
+	Queue     jobs.Queue
+	Store     EndpointStore
+	HTTP      *http.Client
 	UserAgent string
 }
 
@@ -107,7 +107,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, payload json.RawMessage) error
 	if err != nil {
 		return fmt.Errorf("webhooks: post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Drain so HTTP/1.1 keep-alive can reuse the connection.
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode/100 != 2 {

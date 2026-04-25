@@ -65,9 +65,9 @@ func VerifySignature(secret, eventID string, body []byte, header string) error {
 		return errors.New("webhooks: malformed signature header")
 	}
 	var (
-		ts        int64
-		sigs      []string
-		found     bool
+		ts    int64
+		sigs  []string
+		found bool
 	)
 	for _, p := range parts {
 		kv := strings.SplitN(strings.TrimSpace(p), "=", 2)

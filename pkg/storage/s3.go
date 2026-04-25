@@ -23,7 +23,7 @@ type S3Config struct {
 	Bucket          string
 	AccessKeyID     string
 	SecretAccessKey string
-	SessionToken   string
+	SessionToken    string
 
 	// UsePathStyle is required by MinIO and most non-AWS S3
 	// implementations.

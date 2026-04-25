@@ -1,0 +1,79 @@
+package usecase
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"{{.Module}}/internal/domain/{{.Lower}}"
+)
+
+type stub{{.Name}}Repo struct {
+	items map[uuid.UUID]*{{.Lower}}.{{.Name}}
+}
+
+func newStub{{.Name}}Repo() *stub{{.Name}}Repo { return &stub{{.Name}}Repo{items: map[uuid.UUID]*{{.Lower}}.{{.Name}}{}} }
+
+func (r *stub{{.Name}}Repo) Create(_ context.Context, v *{{.Lower}}.{{.Name}}) error {
+	r.items[v.ID] = v
+	return nil
+}
+func (r *stub{{.Name}}Repo) FindByID(_ context.Context, id uuid.UUID) (*{{.Lower}}.{{.Name}}, error) {
+	v, ok := r.items[id]
+	if !ok {
+		return nil, {{.Lower}}.ErrNotFound
+	}
+	return v, nil
+}
+func (r *stub{{.Name}}Repo) List(_ context.Context, limit, offset int) ([]{{.Lower}}.{{.Name}}, error) {
+	out := make([]{{.Lower}}.{{.Name}}, 0, len(r.items))
+	for _, v := range r.items {
+		out = append(out, *v)
+	}
+	if offset > len(out) {
+		return nil, nil
+	}
+	out = out[offset:]
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+func (r *stub{{.Name}}Repo) Update(_ context.Context, v *{{.Lower}}.{{.Name}}) error {
+	r.items[v.ID] = v
+	return nil
+}
+func (r *stub{{.Name}}Repo) SoftDelete(_ context.Context, id uuid.UUID) error {
+	delete(r.items, id)
+	return nil
+}
+
+func Test{{.Name}}_CreateGet(t *testing.T) {
+	t.Parallel()
+	uc := New{{.Name}}UseCase(newStub{{.Name}}Repo())
+	v, err := uc.Create(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := uc.Get(context.Background(), v.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Name != "hello" {
+		t.Fatalf("name = %s", got.Name)
+	}
+}
+
+func Test{{.Name}}_DeleteRemoves(t *testing.T) {
+	t.Parallel()
+	uc := New{{.Name}}UseCase(newStub{{.Name}}Repo())
+	v, _ := uc.Create(context.Background(), "x")
+	if err := uc.Delete(context.Background(), v.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := uc.Get(context.Background(), v.ID); !errors.Is(err, {{.Lower}}.ErrNotFound) {
+		t.Fatalf("expected NotFound after delete; got %v", err)
+	}
+}

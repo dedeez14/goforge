@@ -41,6 +41,7 @@ type command struct {
 var commands = []command{
 	{name: "doctor", desc: "Diagnose the local environment (Go, DB, env, ports)", run: cmdDoctor},
 	{name: "scaffold", desc: "Generate a new resource (domain + usecase + repo + http + migration)", run: cmdScaffold},
+	{name: "gen", desc: "Template-driven generators (`forge gen resource <Name>`)", run: cmdGen},
 	{name: "migrate", desc: "Run database migrations (up | down | status)", run: cmdMigrate},
 	{name: "openapi", desc: "Print the OpenAPI 3.1 spec by hitting the running API", run: cmdOpenAPI},
 	{name: "bench", desc: "Forward to cmd/bench load-test harness", run: cmdBench},

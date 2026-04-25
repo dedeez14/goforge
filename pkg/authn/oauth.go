@@ -112,7 +112,7 @@ func (o *OAuth) Exchange(ctx context.Context, state, code string) (*oauth2.Token
 	if err != nil {
 		return tok, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {
 		return tok, nil, err

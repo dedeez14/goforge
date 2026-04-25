@@ -79,7 +79,7 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 	rows.Close()
 
 	for _, d := range dues {
-		_, err := s.Queue.Enqueue(ctx, d.kind, json.RawMessage(d.payload), EnqueueOptions{
+		_, err := s.Queue.Enqueue(ctx, d.kind, d.payload, EnqueueOptions{
 			Queue:     d.queue,
 			DedupeKey: "schedule:" + d.id + ":" + time.Now().UTC().Format(time.RFC3339),
 		})

@@ -21,7 +21,7 @@ func TestMemory_PutGetRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	got, _ := io.ReadAll(r)
 	if string(got) != "hello" {
 		t.Fatalf("got %q", got)
