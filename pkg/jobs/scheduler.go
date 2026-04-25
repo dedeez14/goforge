@@ -3,11 +3,9 @@ package jobs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
@@ -24,7 +22,16 @@ import (
 // so a commit failure leaves both untouched and the next tick is
 // free to retry without producing duplicate work.
 type Scheduler struct {
-	Pool   *pgxpool.Pool
+	Pool *pgxpool.Pool
+
+	// Queue is retained for API compatibility; the dispatcher now
+	// inserts directly into the same transaction as the schedule
+	// advancement, so this field is unused. It will be removed in
+	// the next major version bump.
+	//
+	// Deprecated: leave nil; setting this has no effect.
+	Queue Queue
+
 	Logger zerolog.Logger
 }
 
@@ -95,19 +102,23 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 		// constraint on dedupe_key collapses retries into a single
 		// job rather than producing duplicates.
 		dedupeKey := "schedule:" + d.id + ":" + d.kind
+		// ON CONFLICT DO NOTHING (matching the partial index from
+		// migration 0005) keeps the transaction in a valid state when
+		// the row already exists. Catching error 23505 in Go is not
+		// safe here: a unique-violation puts Postgres into an aborted
+		// transaction state and the subsequent UPDATE would fail with
+		// "current transaction is aborted, commands ignored until end
+		// of transaction block".
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO jobs (queue, kind, payload, max_attempts, run_at, dedupe_key)
-			VALUES ($1, $2, $3, 5, now(), $4)`,
+			VALUES ($1, $2, $3, 5, now(), $4)
+			ON CONFLICT (queue, dedupe_key)
+			  WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running', 'failed')
+			DO NOTHING`,
 			d.queue, d.kind, d.payload, dedupeKey,
 		); err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				// Already enqueued for this run — fall through to
-				// advance next_run_at as if we had just inserted.
-			} else {
-				s.Logger.Warn().Err(err).Str("schedule", d.name).Msg("enqueue from schedule failed")
-				continue
-			}
+			s.Logger.Warn().Err(err).Str("schedule", d.name).Msg("enqueue from schedule failed")
+			return err
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE job_schedules SET next_run_at = now() + ($2 || ' seconds')::interval, updated_at = now() WHERE id = $1`,
