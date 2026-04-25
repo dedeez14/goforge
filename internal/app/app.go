@@ -40,6 +40,13 @@ func Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("config load: %w", err)
 	}
+	// Production-aware sanity checks (weak JWT secret, wildcard CORS,
+	// trusted-proxy mis-wiring, argon below OWASP minimums, …).
+	// Fail-fast at boot so the service never starts in an unsafe
+	// state. Lower environments are lenient by design.
+	if err := cfg.Verify(); err != nil {
+		return fmt.Errorf("config verify: %w", err)
+	}
 
 	log := logger.New(cfg.Log, cfg.App)
 	log.Info().Str("env", cfg.App.Env).Int("port", cfg.HTTP.Port).Msg("starting service")
