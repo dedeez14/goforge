@@ -75,8 +75,15 @@ func repoRoot(t *testing.T) string {
 // the client; httpx.RespondError masks those to a generic "internal"
 // payload. Including them would force translations for hundreds of
 // dead codes.
+// (?s) lets `.` match newlines so multi-line constructor calls -
+// e.g. `errs.\n  Forbidden("rbac.permission_required", ...)` - are
+// captured. \s* between `errs.` and the constructor name covers the
+// same case the other way (the dot stays on the previous line).
+// `[^"]*?` for the gap between the call and the first string is
+// equivalent to the original non-greedy match but tolerates any
+// formatting (extra args, line breaks, comments) in between.
 var codeCallRe = regexp.MustCompile(
-	`errs\.(?:New|NotFound|Conflict|Forbidden|InvalidInput|Unauthorized)\([^,)]*?,?\s*"([a-z][a-z0-9._-]*)"`,
+	`(?s)errs\.\s*(?:New|NotFound|Conflict|Forbidden|InvalidInput|Unauthorized)\([^"]*?"([a-z][a-z0-9._-]*)"`,
 )
 
 // scanErrorCodes walks the repository's internal/ and pkg/ trees
