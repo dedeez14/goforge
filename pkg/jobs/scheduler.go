@@ -101,7 +101,7 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, name, queue, kind, payload, interval_secs
+		SELECT id, name, queue, kind, payload, interval_secs, next_run_at
 		FROM job_schedules
 		WHERE enabled = TRUE AND next_run_at <= now()
 		FOR UPDATE SKIP LOCKED`)
@@ -109,17 +109,18 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 		return err
 	}
 	type due struct {
-		id       string
-		name     string
-		queue    string
-		kind     string
-		payload  json.RawMessage
-		interval int
+		id        string
+		name      string
+		queue     string
+		kind      string
+		payload   json.RawMessage
+		interval  int
+		nextRunAt time.Time
 	}
 	var dues []due
 	for rows.Next() {
 		var d due
-		if err := rows.Scan(&d.id, &d.name, &d.queue, &d.kind, &d.payload, &d.interval); err != nil {
+		if err := rows.Scan(&d.id, &d.name, &d.queue, &d.kind, &d.payload, &d.interval, &d.nextRunAt); err != nil {
 			rows.Close()
 			return err
 		}
@@ -131,14 +132,17 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 	}
 
 	for _, d := range dues {
-		// Deterministic dedupe key that does NOT depend on time.Now:
-		// if this transaction is retried after a transient commit
-		// failure the same key is reused so the unique constraint
-		// collapses retries into a single job rather than producing
-		// duplicates.
+		// Dedupe key ties each invocation to the schedule's current
+		// next_run_at: stable across transaction retries (the row is
+		// locked with FOR UPDATE SKIP LOCKED, so next_run_at cannot
+		// move underneath us) but different across successive ticks,
+		// so overlapping invocations are never silently dropped. A
+		// time.Now()-based key would change on every retry and defeat
+		// the unique index; a purely static key would collide with a
+		// still-active previous invocation and lose work.
 		opts := EnqueueOptions{
 			Queue:     d.queue,
-			DedupeKey: "schedule:" + d.id + ":" + d.kind,
+			DedupeKey: "schedule:" + d.id + ":" + d.nextRunAt.UTC().Format(time.RFC3339Nano),
 		}
 
 		if txq != nil {
