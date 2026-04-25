@@ -65,6 +65,64 @@ func (q *Postgres) Enqueue(ctx context.Context, kind string, payload any, opts E
 	return job, nil
 }
 
+// EnqueueTx is the transactional variant of Enqueue: the caller owns
+// the pgx.Tx and the INSERT shares its lifetime, so the enqueue can
+// be rolled back atomically with whatever the caller did alongside
+// it (for example Scheduler advancing next_run_at). When DedupeKey
+// collides with an open row the method uses ON CONFLICT DO NOTHING
+// and returns ErrDuplicate — this keeps the transaction in a valid
+// state (catching error 23505 from a plain INSERT would abort the
+// tx and wedge later statements with "current transaction is aborted,
+// commands ignored").
+//
+// Postgres satisfies TxEnqueuer.
+func (q *Postgres) EnqueueTx(ctx context.Context, tx pgx.Tx, kind string, payload any, opts EnqueueOptions) (*Job, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload: %w", err)
+	}
+	queue := opts.Queue
+	if queue == "" {
+		queue = "default"
+	}
+	max := opts.MaxAttempts
+	if max <= 0 {
+		max = 5
+	}
+	runAt := opts.RunAt
+	if runAt.IsZero() {
+		runAt = time.Now().UTC()
+	}
+	var dedupe any
+	if opts.DedupeKey != "" {
+		dedupe = opts.DedupeKey
+	}
+
+	sql := `
+		INSERT INTO jobs (queue, kind, payload, max_attempts, run_at, dedupe_key)
+		VALUES ($1, $2, $3, $4, $5, $6)`
+	if opts.DedupeKey != "" {
+		sql += `
+		ON CONFLICT (queue, dedupe_key)
+		  WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running', 'failed')
+		DO NOTHING`
+	}
+	sql += `
+		RETURNING id, queue, kind, payload, status, attempts, max_attempts,
+		          run_at, locked_at, locked_by, completed_at, created_at, updated_at, dedupe_key`
+
+	row := tx.QueryRow(ctx, sql, queue, kind, body, max, runAt, dedupe)
+	job, err := scanJob(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// ON CONFLICT DO NOTHING skipped the insert.
+			return nil, ErrDuplicate
+		}
+		return nil, err
+	}
+	return job, nil
+}
+
 // Claim atomically locks one pending or retry-ready job for the
 // caller. It returns nil, nil when the queue is empty so the runner
 // loop can sleep without distinguishing between "no work" and "real
