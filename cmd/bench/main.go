@@ -132,22 +132,23 @@ func runRegister(c *http.Client, base string, total, conc int, prefix string) []
 		body, _ := json.Marshal(map[string]string{
 			"email": email, "password": password, "name": fmt.Sprintf("User %d", i),
 		})
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/api/v1/auth/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
 		t0 := time.Now()
-		resp, err := c.Post(base+"/api/v1/auth/register", "application/json", bytes.NewReader(body))
+		resp, err := c.Do(req)
 		if err != nil {
 			return result{LatencyNS: time.Since(t0).Nanoseconds(), Err: true}
 		}
-		defer resp.Body.Close()
-
 		if resp.StatusCode == http.StatusCreated {
 			var env envelope[authData]
-			if err := json.NewDecoder(resp.Body).Decode(&env); err == nil && env.Success {
+			if derr := json.NewDecoder(resp.Body).Decode(&env); derr == nil && env.Success {
 				accounts[i] = userAcct{Email: email, Password: password, Token: env.Data.Tokens.AccessToken}
 				atomic.AddInt64(&ok, 1)
 			}
 		} else {
-			io.Copy(io.Discard, resp.Body)
+			_, _ = io.Copy(io.Discard, resp.Body)
 		}
+		_ = resp.Body.Close()
 		return result{LatencyNS: time.Since(t0).Nanoseconds(), Status: resp.StatusCode}
 	})
 
@@ -174,20 +175,22 @@ func runLoginCaptureTokens(c *http.Client, base string, accounts []userAcct, con
 	drive(len(accounts), conc, func(i int) result {
 		a := accounts[i]
 		body, _ := json.Marshal(map[string]string{"email": a.Email, "password": a.Password})
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
 		t0 := time.Now()
-		resp, err := c.Post(base+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+		resp, err := c.Do(req)
 		if err != nil {
 			return result{LatencyNS: time.Since(t0).Nanoseconds(), Err: true}
 		}
-		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
 			var env envelope[authData]
-			if err := json.NewDecoder(resp.Body).Decode(&env); err == nil && env.Success {
+			if derr := json.NewDecoder(resp.Body).Decode(&env); derr == nil && env.Success {
 				accounts[i].Token = env.Data.Tokens.AccessToken
 			}
 		} else {
-			io.Copy(io.Discard, resp.Body)
+			_, _ = io.Copy(io.Discard, resp.Body)
 		}
+		_ = resp.Body.Close()
 		return result{LatencyNS: time.Since(t0).Nanoseconds(), Status: resp.StatusCode}
 	})
 }
@@ -215,8 +218,8 @@ func doReq(c *http.Client, method, url string, body []byte, bearer string) resul
 	if err != nil {
 		return result{LatencyNS: time.Since(t0).Nanoseconds(), Err: true}
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 	return result{LatencyNS: time.Since(t0).Nanoseconds(), Status: resp.StatusCode}
 }
 
@@ -312,9 +315,12 @@ func saveFixtures(path string, accounts []userAcct) {
 	if err != nil {
 		log.Fatalf("save fixtures: %v", err)
 	}
-	defer f.Close()
 	if err := json.NewEncoder(f).Encode(accounts); err != nil {
+		_ = f.Close()
 		log.Fatalf("encode fixtures: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		log.Fatalf("close fixtures: %v", err)
 	}
 	fmt.Printf("  saved %d fixtures to %s\n", len(accounts), path)
 }
@@ -327,10 +333,13 @@ func loadFixtures(path string) []userAcct {
 	if err != nil {
 		log.Fatalf("open fixtures: %v", err)
 	}
-	defer f.Close()
 	var accounts []userAcct
 	if err := json.NewDecoder(f).Decode(&accounts); err != nil {
+		_ = f.Close()
 		log.Fatalf("decode fixtures: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		log.Fatalf("close fixtures: %v", err)
 	}
 	return accounts
 }
