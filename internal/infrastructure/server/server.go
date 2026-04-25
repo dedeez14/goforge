@@ -3,6 +3,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/gofiber/contrib/fiberzerolog"
@@ -87,7 +88,8 @@ func New(cfg *config.Config, log zerolog.Logger) *fiber.App {
 // escapes a route handler without being rendered by httpx.RespondError.
 // In practice this catches BodyParser panics and unknown route 404s.
 func errorHandler(c *fiber.Ctx, err error) error {
-	if fe, ok := err.(*fiber.Error); ok {
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
 		switch fe.Code {
 		case fiber.StatusNotFound:
 			return httpx.RespondError(c, errs.NotFound("route.not_found", "route not found"))

@@ -4,6 +4,7 @@
 package validatorx
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -41,7 +42,7 @@ func V() *validator.Validate {
 func Struct(s any) error {
 	if err := V().Struct(s); err != nil {
 		var verrs validator.ValidationErrors
-		if ok := asValidationErrors(err, &verrs); !ok {
+		if !errors.As(err, &verrs) {
 			return errs.Wrap(errs.KindInvalidInput, "validation", "invalid request", err)
 		}
 		fields := make(map[string]any, len(verrs))
@@ -51,15 +52,6 @@ func Struct(s any) error {
 		return errs.InvalidInput("validation", "invalid request").With("fields", fields)
 	}
 	return nil
-}
-
-func asValidationErrors(err error, dst *validator.ValidationErrors) bool {
-	ve, ok := err.(validator.ValidationErrors)
-	if !ok {
-		return false
-	}
-	*dst = ve
-	return true
 }
 
 func describe(fe validator.FieldError) string {

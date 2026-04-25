@@ -63,7 +63,7 @@ func (r *inMemoryUserRepo) UpdatePasswordHash(_ context.Context, id uuid.UUID, h
 	return nil
 }
 
-func newAuthFixture(t *testing.T) (*AuthUseCase, *inMemoryUserRepo) {
+func newAuthFixture(t *testing.T) *AuthUseCase {
 	t.Helper()
 	repo := newInMemoryUserRepo()
 	hasher := security.NewPasswordHasher(security.Argon2idParams{
@@ -73,11 +73,11 @@ func newAuthFixture(t *testing.T) (*AuthUseCase, *inMemoryUserRepo) {
 		Secret: strings.Repeat("k", 32), Issuer: "test",
 		AccessTTL: 5 * time.Minute, RefreshTTL: time.Hour,
 	})
-	return NewAuthUseCase(repo, hasher, tokens, zerolog.Nop()), repo
+	return NewAuthUseCase(repo, hasher, tokens, zerolog.Nop())
 }
 
 func TestAuth_RegisterThenLogin(t *testing.T) {
-	uc, _ := newAuthFixture(t)
+	uc := newAuthFixture(t)
 	ctx := context.Background()
 
 	u, tp, err := uc.Register(ctx, RegisterInput{Email: "Alice@Example.com", Password: "hunter2hunter2", Name: "Alice"})
@@ -101,7 +101,7 @@ func TestAuth_RegisterThenLogin(t *testing.T) {
 }
 
 func TestAuth_RegisterEmailTaken(t *testing.T) {
-	uc, _ := newAuthFixture(t)
+	uc := newAuthFixture(t)
 	ctx := context.Background()
 	if _, _, err := uc.Register(ctx, RegisterInput{Email: "a@b.co", Password: "password", Name: "A"}); err != nil {
 		t.Fatalf("first register: %v", err)
@@ -113,7 +113,7 @@ func TestAuth_RegisterEmailTaken(t *testing.T) {
 }
 
 func TestAuth_LoginInvalid(t *testing.T) {
-	uc, _ := newAuthFixture(t)
+	uc := newAuthFixture(t)
 	ctx := context.Background()
 	_, _, err := uc.Login(ctx, LoginInput{Email: "missing@example.com", Password: "x"})
 	if !errs.Is(err, errs.KindUnauthorized) {
@@ -130,7 +130,7 @@ func TestAuth_LoginInvalid(t *testing.T) {
 }
 
 func TestAuth_Refresh(t *testing.T) {
-	uc, _ := newAuthFixture(t)
+	uc := newAuthFixture(t)
 	ctx := context.Background()
 	_, tp, err := uc.Register(ctx, RegisterInput{Email: "r@b.co", Password: "rightpassword", Name: "R"})
 	if err != nil {

@@ -69,6 +69,11 @@ type Security struct {
 	CORSAllowOrigins string `mapstructure:"cors_allow_origins"`
 	RateLimitPerMin  int    `mapstructure:"rate_limit_per_min"`
 	TrustXForwarded  bool   `mapstructure:"trust_x_forwarded"`
+	// Argon2id tunables. Safe defaults (64 MiB / t=3 / p=2) match
+	// OWASP's 2023 recommendations for interactive login.
+	ArgonMemoryKiB uint32 `mapstructure:"argon_memory_kib"`
+	ArgonIters     uint32 `mapstructure:"argon_iters"`
+	ArgonParallel  uint8  `mapstructure:"argon_parallel"`
 }
 
 // IsProduction reports whether the configured environment is production-like.
@@ -145,6 +150,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("security.cors_allow_origins", "*")
 	v.SetDefault("security.rate_limit_per_min", 120)
 	v.SetDefault("security.trust_x_forwarded", false)
+	v.SetDefault("security.argon_memory_kib", 64*1024)
+	v.SetDefault("security.argon_iters", 3)
+	v.SetDefault("security.argon_parallel", 2)
 }
 
 // allKeys enumerates every configuration key. Used to bind env vars
@@ -161,5 +169,6 @@ func allKeys() []string {
 		"jwt.secret", "jwt.issuer", "jwt.access_ttl", "jwt.refresh_ttl",
 		"log.level", "log.pretty",
 		"security.cors_allow_origins", "security.rate_limit_per_min", "security.trust_x_forwarded",
+		"security.argon_memory_kib", "security.argon_iters", "security.argon_parallel",
 	}
 }

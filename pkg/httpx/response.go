@@ -11,16 +11,17 @@ import (
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
+
 	"github.com/dedeez14/goforge/pkg/errs"
 )
 
 // Envelope is the canonical JSON body for all responses.
 type Envelope struct {
-	Success   bool            `json:"success"`
-	Data      any             `json:"data,omitempty"`
-	Error     *ErrorPayload   `json:"error,omitempty"`
-	Meta      *Meta           `json:"meta,omitempty"`
-	RequestID string          `json:"request_id,omitempty"`
+	Success   bool          `json:"success"`
+	Data      any           `json:"data,omitempty"`
+	Error     *ErrorPayload `json:"error,omitempty"`
+	Meta      *Meta         `json:"meta,omitempty"`
+	RequestID string        `json:"request_id,omitempty"`
 }
 
 type ErrorPayload struct {

@@ -4,7 +4,7 @@
 # - Final image is ~10MB and runs as a non-root user.
 # - Build-cache friendly: deps are downloaded before source is copied.
 
-FROM golang:1.25-alpine AS deps
+FROM golang:1.23-alpine AS deps
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
