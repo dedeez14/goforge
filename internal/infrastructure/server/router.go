@@ -59,12 +59,17 @@ func Register(app *fiber.App, h Handlers, tokens security.TokenIssuer, ac Access
 	authed.Get("/auth/me", h.Auth.Me)
 
 	// API-key self-service: every authenticated user manages their
-	// own keys. Admin-style minting (no owner / wildcard scopes)
-	// stays gated by the existing rbac.manage permission below.
+	// own keys. Crucially, this sub-group rejects requests that
+	// authenticated with an API key - otherwise a leaked narrow
+	// key (e.g. scopes=["reports.read"]) could call POST /api-keys
+	// to mint a fresh wildcard key for itself, escalating from
+	// read-only to admin in a single hop. Credential management is
+	// only allowed from a real interactive user session (JWT).
 	if h.APIKeys != nil {
-		authed.Get("/api-keys", h.APIKeys.List)
-		authed.Post("/api-keys", h.APIKeys.Create)
-		authed.Delete("/api-keys/:id", h.APIKeys.Revoke)
+		keys := authed.Group("/api-keys", middleware.RequireUserSession())
+		keys.Get("", h.APIKeys.List)
+		keys.Post("", h.APIKeys.Create)
+		keys.Delete("/:id", h.APIKeys.Revoke)
 	}
 
 	// "what can I do here" — every authenticated user may ask.
