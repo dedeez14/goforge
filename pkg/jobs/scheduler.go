@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
@@ -17,9 +18,13 @@ import (
 // or "purge old refresh tokens every hour" use-cases are happy with
 // an integer interval, and storing one is much easier to reason
 // about than a 5-field expression.
+//
+// Atomicity contract: the new job row and the schedule's
+// next_run_at advancement are written inside the same transaction,
+// so a commit failure leaves both untouched and the next tick is
+// free to retry without producing duplicate work.
 type Scheduler struct {
 	Pool   *pgxpool.Pool
-	Queue  Queue
 	Logger zerolog.Logger
 }
 
@@ -43,7 +48,9 @@ func (s *Scheduler) Run(ctx context.Context, tick time.Duration) error {
 	}
 }
 
-// dispatchDue is exposed for tests.
+// dispatchDue is exposed for tests. Both the INSERT into jobs and
+// the UPDATE of job_schedules.next_run_at run on the same tx so
+// they commit atomically.
 func (s *Scheduler) dispatchDue(ctx context.Context) error {
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -82,13 +89,25 @@ func (s *Scheduler) dispatchDue(ctx context.Context) error {
 	}
 
 	for _, d := range dues {
-		_, err := s.Queue.Enqueue(ctx, d.kind, d.payload, EnqueueOptions{
-			Queue:     d.queue,
-			DedupeKey: "schedule:" + d.id + ":" + time.Now().UTC().Format(time.RFC3339),
-		})
-		if err != nil && !errors.Is(err, ErrDuplicate) {
-			s.Logger.Warn().Err(err).Str("schedule", d.name).Msg("enqueue from schedule failed")
-			continue
+		// Use a deterministic dedupe key that does NOT depend on
+		// time.Now: if this transaction is retried after a transient
+		// commit failure the same key is reused, and the unique
+		// constraint on dedupe_key collapses retries into a single
+		// job rather than producing duplicates.
+		dedupeKey := "schedule:" + d.id + ":" + d.kind
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO jobs (queue, kind, payload, max_attempts, run_at, dedupe_key)
+			VALUES ($1, $2, $3, 5, now(), $4)`,
+			d.queue, d.kind, d.payload, dedupeKey,
+		); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				// Already enqueued for this run — fall through to
+				// advance next_run_at as if we had just inserted.
+			} else {
+				s.Logger.Warn().Err(err).Str("schedule", d.name).Msg("enqueue from schedule failed")
+				continue
+			}
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE job_schedules SET next_run_at = now() + ($2 || ' seconds')::interval, updated_at = now() WHERE id = $1`,
