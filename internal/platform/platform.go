@@ -65,6 +65,12 @@ func Build(app *fiber.App, pool *pgxpool.Pool, cfg config.Platform, info openapi
 		app:     app,
 		log:     log,
 	}
+	// Tracing first: when InitTracing has installed a real
+	// TracerProvider, every downstream middleware/handler runs
+	// inside its span. When tracing is disabled, the global no-op
+	// provider keeps overhead at a few nanoseconds per request.
+	app.Use(observability.FiberTracing(info.Title))
+
 	if cfg.MetricsEnabled {
 		s.Metrics = observability.New()
 		app.Use(observability.Middleware(s.Metrics))

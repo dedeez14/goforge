@@ -86,6 +86,14 @@ type Platform struct {
 	MetricsEnabled     bool   `mapstructure:"metrics_enabled"`
 	TenantHeader       string `mapstructure:"tenant_header"`
 	AdminToken         string `mapstructure:"admin_token"`
+
+	// OpenTelemetry — when OtelEndpoint is non-empty, the process
+	// installs an OTLP/HTTP exporter and wraps requests, outbox
+	// dispatches and DB calls in spans. Empty endpoint means the
+	// global TracerProvider is no-op (zero overhead).
+	OtelEndpoint    string  `mapstructure:"otel_endpoint"`
+	OtelInsecure    bool    `mapstructure:"otel_insecure"`
+	OtelSampleRatio float64 `mapstructure:"otel_sample_ratio"`
 }
 
 type Security struct {
@@ -208,5 +216,6 @@ func allKeys() []string {
 		"platform.outbox_enabled", "platform.outbox_batch_size", "platform.outbox_interval_ms",
 		"platform.realtime_enabled", "platform.openapi_enabled", "platform.metrics_enabled",
 		"platform.tenant_header", "platform.admin_token",
+		"platform.otel_endpoint", "platform.otel_insecure", "platform.otel_sample_ratio",
 	}
 }
