@@ -96,7 +96,14 @@ func TestDefaultBundle_HasShippedCodes(t *testing.T) {
 	b := DefaultBundle()
 	must := []string{
 		"internal", "validation", "auth.invalid", "user.invalid_credentials",
-		"rate_limited", "route.not_found", "menu.cycle", "permission.taken",
+		"rate_limited", "route.not_found", "menu.cycle",
+		// Codes here must match the ones used by the framework's
+		// domain layer (rbac.permission_code_taken, not the older
+		// "permission.taken" placeholder). The auto-coverage test
+		// in bundle_default_test.go enforces full alignment - this
+		// list is just a smoke check.
+		"rbac.permission_code_taken",
+		"rbac.role_is_system",
 	}
 	for _, code := range must {
 		if _, ok := b.Lookup(code, LocaleID); !ok {
