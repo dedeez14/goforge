@@ -49,11 +49,13 @@ func TestVerify_HappyPath(t *testing.T) {
 
 func TestVerify_FailsForWeakJWTSecret(t *testing.T) {
 	cases := map[string]string{
-		"too short":  "short",
-		"known weak": "changeme",
-		"all same":   strings.Repeat("a", 64),
-		"empty":      "",
-		"32 of zero": "00000000000000000000000000000000",
+		"too short":          "short",
+		"known weak":         "changeme",
+		"all same":           strings.Repeat("a", 64),
+		"empty":              "",
+		"32 of zero":         "00000000000000000000000000000000",
+		"env.example sample": "change-me-to-a-very-long-random-string-of-32+chars",
+		"docker-compose":     "please-change-me-to-a-very-long-random-secret-key",
 	}
 	for name, secret := range cases {
 		t.Run(name, func(t *testing.T) {
