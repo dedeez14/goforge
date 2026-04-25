@@ -295,14 +295,18 @@ func (h *RoleHandler) MyAccess(c *fiber.Ctx) error {
 	})
 }
 
-// parseUUIDParam parses route param :id as a UUID. We only ever use
-// "id" today; the helper is defined here so handlers can validate
-// path UUIDs in a single line.
-func parseUUIDParam(c *fiber.Ctx, _ string) (uuid.UUID, error) {
-	raw := c.Params("id")
+// parseUUIDParam parses the named route param as a UUID and returns
+// a stable error when the value is not a valid UUID. Every current
+// caller passes "id" but the parameter stays explicit so future
+// handlers binding `:user_id` etc. behave correctly instead of
+// silently reading `:id`.
+//
+//nolint:unparam // see comment above
+func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
+	raw := c.Params(name)
 	id, err := uuid.Parse(raw)
 	if err != nil {
-		return uuid.Nil, errs.InvalidInput("request.invalid_uuid", "path parameter id is not a valid UUID")
+		return uuid.Nil, errs.InvalidInput("request.invalid_uuid", "path parameter "+name+" is not a valid UUID")
 	}
 	return id, nil
 }

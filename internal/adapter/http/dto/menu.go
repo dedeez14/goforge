@@ -25,20 +25,25 @@ type CreateMenuRequest struct {
 
 // UpdateMenuRequest is the JSON input for PATCH /menus/:id.
 //
+// All mutable fields are pointers so the handler can pass through
+// "field absent" (nil → keep) vs. "field present" (non-nil → set)
+// to the use-case layer. Without this, omitting `is_visible` from
+// a PATCH body would silently hide the menu (Go would unmarshal it
+// to false).
+//
 // `unset_parent` and `unset_required_permission` are explicit "set
-// this field back to NULL" flags because JSON cannot express the
-// difference between "field missing" and "field is null" cleanly
-// after Go's pointer-omitempty conventions.
+// this field back to NULL" flags because a missing pointer field
+// already means "leave alone".
 type UpdateMenuRequest struct {
 	ParentID                *uuid.UUID      `json:"parent_id"`
 	UnsetParent             bool            `json:"unset_parent"`
-	Label                   string          `json:"label"                      validate:"omitempty,min=1,max=128"`
-	Icon                    string          `json:"icon"                       validate:"max=64"`
-	Path                    string          `json:"path"                       validate:"max=255"`
-	SortOrder               int             `json:"sort_order"`
+	Label                   *string         `json:"label"                      validate:"omitempty,min=1,max=128"`
+	Icon                    *string         `json:"icon"                       validate:"omitempty,max=64"`
+	Path                    *string         `json:"path"                       validate:"omitempty,max=255"`
+	SortOrder               *int            `json:"sort_order"`
 	RequiredPermissionCode  *string         `json:"required_permission_code"   validate:"omitempty,max=100"`
 	UnsetRequiredPermission bool            `json:"unset_required_permission"`
-	IsVisible               bool            `json:"is_visible"`
+	IsVisible               *bool           `json:"is_visible"`
 	Metadata                json.RawMessage `json:"metadata"`
 }
 

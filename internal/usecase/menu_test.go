@@ -164,6 +164,83 @@ func TestVisibleTree_FiltersByPermission(t *testing.T) {
 	})
 }
 
+// TestVisibleTree_PrunesDeeplyNestedDescendants verifies that when a
+// hidden ancestor disappears, every descendant disappears too — not
+// just direct children. Regression test for the
+// single-pass-pruning bug where grandchildren leaked as orphan roots.
+func TestVisibleTree_PrunesDeeplyNestedDescendants(t *testing.T) {
+	repo := &stubMenuRepo{}
+	uc := NewMenuUseCase(repo, nil, zerolog.Nop())
+	ctx := context.Background()
+
+	rootID, _ := uuid.NewRandom()
+	childID, _ := uuid.NewRandom()
+	grandID, _ := uuid.NewRandom()
+	greatID, _ := uuid.NewRandom()
+
+	// Hidden root with three layers of visible descendants. Expected
+	// outcome: empty tree — the entire branch is gone.
+	root := &menu.Menu{ID: rootID, Code: "root", Label: "Root", IsVisible: true,
+		RequiredPermissionCode: ptrStr("ops.admin")}
+	child := &menu.Menu{ID: childID, Code: "child", Label: "Child", IsVisible: true, ParentID: &rootID}
+	grand := &menu.Menu{ID: grandID, Code: "grand", Label: "Grand", IsVisible: true, ParentID: &childID}
+	great := &menu.Menu{ID: greatID, Code: "great", Label: "Great", IsVisible: true, ParentID: &grandID}
+
+	for _, m := range []*menu.Menu{root, child, grand, great} {
+		_ = repo.Create(ctx, m, nil)
+	}
+
+	tree, err := uc.VisibleTree(ctx, nil, []string{"menu.view"})
+	if err != nil {
+		t.Fatalf("VisibleTree: %v", err)
+	}
+	if len(tree) != 0 {
+		t.Fatalf("expected empty tree (root denied → all descendants pruned), got %d roots", len(tree))
+	}
+}
+
+// TestUpdate_PartialPATCH_DoesNotZeroFields verifies that a partial
+// PATCH (e.g. only sending {"label": "..."}) leaves untouched
+// columns alone instead of overwriting them with Go zero values.
+// Regression test for the bug where omitting `is_visible` would
+// silently hide menus.
+func TestUpdate_PartialPATCH_DoesNotZeroFields(t *testing.T) {
+	repo := &stubMenuRepo{}
+	uc := NewMenuUseCase(repo, nil, zerolog.Nop())
+	ctx := context.Background()
+
+	id, _ := uuid.NewRandom()
+	icon := "settings"
+	path := "/dashboard"
+	original := &menu.Menu{
+		ID: id, Code: "dash", Label: "Dashboard",
+		Icon: icon, Path: path, SortOrder: 7,
+		IsVisible: true,
+	}
+	if err := repo.Create(ctx, original, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Only label is provided. Everything else must survive.
+	newLabel := "Home"
+	updated, err := uc.Update(ctx, id, UpdateMenuInput{Label: &newLabel}, nil)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.Label != "Home" {
+		t.Fatalf("label not applied: %q", updated.Label)
+	}
+	if !updated.IsVisible {
+		t.Fatalf("is_visible was overwritten to false on partial PATCH")
+	}
+	if updated.SortOrder != 7 {
+		t.Fatalf("sort_order was overwritten on partial PATCH: got %d", updated.SortOrder)
+	}
+	if updated.Icon != icon || updated.Path != path {
+		t.Fatalf("icon/path were overwritten on partial PATCH: icon=%q path=%q", updated.Icon, updated.Path)
+	}
+}
+
 // TestUpdate_RejectsCycle verifies that moving a node under one of
 // its descendants is refused.
 func TestUpdate_RejectsCycle(t *testing.T) {
@@ -182,7 +259,7 @@ func TestUpdate_RejectsCycle(t *testing.T) {
 	}
 
 	// Trying to move root under grand → cycle.
-	_, err := uc.Update(ctx, rootID, UpdateMenuInput{ParentID: &grandID, IsVisible: true}, nil)
+	_, err := uc.Update(ctx, rootID, UpdateMenuInput{ParentID: &grandID}, nil)
 	if err == nil {
 		t.Fatalf("expected cycle error")
 	}
