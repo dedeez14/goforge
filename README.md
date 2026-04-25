@@ -206,6 +206,13 @@ docs/                                 # design + ops documentation
 | `POST` | `/api/v1/auth/login` | — | Verify credentials, return token pair |
 | `POST` | `/api/v1/auth/refresh` | — | Exchange refresh token for new pair |
 | `GET`  | `/api/v1/auth/me` | Bearer access | Current user |
+| `GET`  | `/api/v1/me/access` | Bearer access | Caller's roles + effective permission codes |
+| `GET`  | `/api/v1/menus/mine` | Bearer access | Menu tree filtered by caller's permissions |
+| `GET\|POST\|PATCH\|DELETE` | `/api/v1/permissions[...]` | `rbac.manage` | Permission catalog CRUD |
+| `GET\|POST\|PATCH\|DELETE` | `/api/v1/roles[...]` | `rbac.manage` | Role CRUD |
+| `PUT`  | `/api/v1/roles/:id/permissions` | `rbac.manage` | Replace role's permission set |
+| `PUT`  | `/api/v1/users/:id/roles` | `rbac.manage` | Replace user's roles in tenant |
+| `GET\|POST\|PATCH\|DELETE` | `/api/v1/menus[...]` | `menu.manage` | Menu CRUD (tree-aware) |
 
 Example success body:
 
@@ -320,6 +327,7 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 - [`docs/scaffolding.md`](./docs/scaffolding.md) — adding a new resource step-by-step, conventions for transactions/pagination/authz.
 - [`docs/benchmark.md`](./docs/benchmark.md) — full methodology and 200k + 500k request results.
 - [`docs/security.md`](./docs/security.md) — threat model, password hashing, JWT design, header policy.
+- [`docs/rbac-menu.md`](./docs/rbac-menu.md) — RBAC + dynamic menu management: schema, endpoints, bootstrap, route-level guarding.
 - [`ROADMAP.md`](./ROADMAP.md) · [`CONTRIBUTING.md`](./CONTRIBUTING.md) · [`SECURITY.md`](./SECURITY.md) · [`AGENTS.md`](./AGENTS.md)
 
 ---
