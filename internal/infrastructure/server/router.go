@@ -16,16 +16,19 @@ type Handlers struct {
 	Permissions *handler.PermissionHandler
 	Roles       *handler.RoleHandler
 	Menus       *handler.MenuHandler
+	APIKeys     *handler.APIKeyHandler
 }
 
 // AccessControl bundles the dependencies the route layer needs to
 // install permission-aware middleware. PermissionResolver is read by
 // every RequirePermission middleware to look up the caller's
 // effective permission codes; TenantResolver is optional and falls
-// back to the X-Tenant-ID header when nil.
+// back to the X-Tenant-ID header when nil; APIKeyAuth, when non-nil,
+// upgrades the route group's auth from JWT-only to "JWT or API key".
 type AccessControl struct {
-	Resolver middleware.PermissionResolver
-	Tenant   middleware.TenantResolver
+	Resolver   middleware.PermissionResolver
+	Tenant     middleware.TenantResolver
+	APIKeyAuth middleware.APIKeyAuthenticate
 }
 
 // Register binds routes onto app. Keeping routing in one place makes it
@@ -43,9 +46,26 @@ func Register(app *fiber.App, h Handlers, tokens security.TokenIssuer, ac Access
 	auth.Post("/login", h.Auth.Login)
 	auth.Post("/refresh", h.Auth.Refresh)
 
-	// Authenticated endpoints.
-	authed := api.Group("", middleware.Auth(tokens))
+	// Authenticated endpoints. When an API-key authenticator is
+	// supplied, the bearer can be either a JWT (existing behaviour)
+	// or a goforge-format API key; everything past this group reads
+	// the user id and scopes from c.Locals identically.
+	jwtAuth := middleware.Auth(tokens)
+	var authMW fiber.Handler = jwtAuth
+	if ac.APIKeyAuth != nil {
+		authMW = middleware.APIKeyOrJWTAuth(ac.APIKeyAuth, jwtAuth)
+	}
+	authed := api.Group("", authMW)
 	authed.Get("/auth/me", h.Auth.Me)
+
+	// API-key self-service: every authenticated user manages their
+	// own keys. Admin-style minting (no owner / wildcard scopes)
+	// stays gated by the existing rbac.manage permission below.
+	if h.APIKeys != nil {
+		authed.Get("/api-keys", h.APIKeys.List)
+		authed.Post("/api-keys", h.APIKeys.Create)
+		authed.Delete("/api-keys/:id", h.APIKeys.Revoke)
+	}
 
 	// "what can I do here" — every authenticated user may ask.
 	if h.Roles != nil {
