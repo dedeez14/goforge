@@ -77,3 +77,24 @@ func APIKeyScopesFromCtx(c *fiber.Ctx) []string {
 	scopes, _ := v.([]string)
 	return scopes
 }
+
+// RequireUserSession rejects requests that authenticated with an
+// API key, allowing only interactive JWT-bearing user sessions
+// through. This is the privilege-escalation guard for endpoints
+// that mint or manage credentials: a leaked narrow API key must
+// never be able to call POST /api/v1/api-keys and issue itself a
+// wildcard-scoped successor. The check is purely structural - if
+// CtxKeyAPIKeyScopes is set on Locals, the request used an API
+// key, period.
+func RequireUserSession() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if v := c.Locals(CtxKeyAPIKeyScopes); v != nil {
+			return httpx.RespondError(c,
+				errs.Forbidden(
+					"apikey.user_session_required",
+					"this endpoint cannot be called with an API key; sign in to manage credentials",
+				))
+		}
+		return c.Next()
+	}
+}
