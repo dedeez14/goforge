@@ -47,15 +47,15 @@ type SecurityScheme struct {
 // Operation describes a single HTTP operation. RequestType/ResponseType
 // are concrete Go types; reflection produces the JSON Schema for them.
 type Operation struct {
-	Method        string
-	Path          string
-	Summary       string
-	Description   string
-	Tags          []string
-	RequestType   any
-	ResponseType  any
-	ResponseCode  int
-	RequiresAuth  bool
+	Method       string
+	Path         string
+	Summary      string
+	Description  string
+	Tags         []string
+	RequestType  any
+	ResponseType any
+	ResponseCode int
+	RequiresAuth bool
 }
 
 // Document accumulates operations and renders them as OpenAPI 3.1.

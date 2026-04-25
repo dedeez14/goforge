@@ -47,9 +47,9 @@ type Service struct {
 }
 
 type cacheEntry struct {
-	value     string
-	hit       bool
-	cachedAt  time.Time
+	value    string
+	hit      bool
+	cachedAt time.Time
 }
 
 // New constructs a Service. The ttl is applied to every cache entry;

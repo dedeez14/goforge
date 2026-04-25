@@ -48,8 +48,8 @@ func (s *PostgresStore) Lookup(ctx context.Context, key string) (*Record, error)
 	`
 	row := s.pool.QueryRow(ctx, q, key)
 	var (
-		rec               Record
-		createdAt, expAt  time.Time
+		rec              Record
+		createdAt, expAt time.Time
 	)
 	err := row.Scan(
 		&rec.Key, &rec.Method, &rec.Path, &rec.RequestHash,

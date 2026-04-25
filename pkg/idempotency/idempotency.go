@@ -34,15 +34,15 @@ const HeaderName = "Idempotency-Key"
 // of the request body, so a different request body sent with the same
 // key returns 409 Conflict.
 type Record struct {
-	Key             string
-	Method          string
-	Path            string
-	RequestHash     string
-	StatusCode      int
-	ContentType     string
-	Body            []byte
-	CreatedAt       time.Time
-	ExpiresAt       time.Time
+	Key         string
+	Method      string
+	Path        string
+	RequestHash string
+	StatusCode  int
+	ContentType string
+	Body        []byte
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 }
 
 // Store is the persistence interface for idempotency records. The
@@ -122,7 +122,11 @@ func Middleware(opts Options) fiber.Handler {
 			}
 			c.Set(HeaderName, key)
 			c.Set("Idempotent-Replay", "true")
-			c.Type(existing.ContentType)
+			ct := existing.ContentType
+			if ct == "" {
+				ct = "application/json"
+			}
+			c.Set(fiber.HeaderContentType, ct)
 			return c.Status(existing.StatusCode).Send(existing.Body)
 		} else if !errors.Is(err, ErrNotFound) {
 			return errs.Wrap(errs.KindInternal, "idempotency.store_error", "idempotency store unavailable", err)

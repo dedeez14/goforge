@@ -126,11 +126,11 @@ func (b BusSink) Publish(ctx context.Context, msg Message) error {
 // configured Sink. It claims rows with `FOR UPDATE SKIP LOCKED` so
 // multiple replicas can run dispatchers in parallel without conflict.
 type Dispatcher struct {
-	Pool      *pgxpool.Pool
-	Sink      Sink
-	Logger    zerolog.Logger
-	BatchSize int
-	Interval  time.Duration
+	Pool        *pgxpool.Pool
+	Sink        Sink
+	Logger      zerolog.Logger
+	BatchSize   int
+	Interval    time.Duration
 	MaxAttempts int
 }
 

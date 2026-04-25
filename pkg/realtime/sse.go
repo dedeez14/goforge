@@ -35,11 +35,11 @@ import (
 // Hub manages active SSE subscribers and forwards events from the bus
 // to each one. It is safe to call from multiple goroutines.
 type Hub struct {
-	bus    *events.Bus
-	log    zerolog.Logger
-	mu     sync.RWMutex
-	subs   map[*subscriber]struct{}
-	count  atomic.Int64
+	bus   *events.Bus
+	log   zerolog.Logger
+	mu    sync.RWMutex
+	subs  map[*subscriber]struct{}
+	count atomic.Int64
 }
 
 type subscriber struct {
@@ -121,7 +121,9 @@ func (h *Hub) Handler() fiber.Handler {
 			defer heartbeat.Stop()
 
 			// Initial comment line lets clients know the stream is alive.
-			fmt.Fprintf(w, ": connected\n\n")
+			if _, err := fmt.Fprintf(w, ": connected\n\n"); err != nil {
+				return
+			}
 			if err := w.Flush(); err != nil {
 				return
 			}
