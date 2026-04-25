@@ -25,6 +25,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/dedeez14/goforge/pkg/events"
 )
@@ -201,8 +205,26 @@ func (d *Dispatcher) tick(ctx context.Context) (int, error) {
 		published []string
 		failed    []string
 	)
+	tracer := otel.Tracer("goforge.outbox")
 	for _, m := range batch {
-		if err := d.Sink.Publish(ctx, m); err != nil {
+		// Each dispatch gets its own span so an external collector
+		// can connect "event published at T+1s" to "tx that wrote
+		// it at T". We make it a producer span because, as far as
+		// downstream subscribers are concerned, this is where the
+		// event enters the wire.
+		mctx, span := tracer.Start(ctx, "outbox.dispatch",
+			trace.WithSpanKind(trace.SpanKindProducer),
+			trace.WithAttributes(
+				attribute.String("messaging.outbox.id", m.ID),
+				attribute.String("messaging.destination.name", m.Topic),
+				attribute.String("messaging.outbox.tenant_id", m.TenantID),
+				attribute.Int("messaging.outbox.attempts", m.Attempts),
+			),
+		)
+		if err := d.Sink.Publish(mctx, m); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.End()
 			d.Logger.Warn().
 				Err(err).
 				Str("outbox_id", m.ID).
@@ -212,6 +234,7 @@ func (d *Dispatcher) tick(ctx context.Context) (int, error) {
 			failed = append(failed, m.ID)
 			continue
 		}
+		span.End()
 		published = append(published, m.ID)
 	}
 

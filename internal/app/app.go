@@ -24,6 +24,7 @@ import (
 	"github.com/dedeez14/goforge/internal/infrastructure/server"
 	"github.com/dedeez14/goforge/internal/platform"
 	"github.com/dedeez14/goforge/internal/usecase"
+	"github.com/dedeez14/goforge/pkg/observability"
 	"github.com/dedeez14/goforge/pkg/openapi"
 )
 
@@ -40,6 +41,28 @@ func Run(ctx context.Context) error {
 
 	log := logger.New(cfg.Log, cfg.App)
 	log.Info().Str("env", cfg.App.Env).Int("port", cfg.HTTP.Port).Msg("starting service")
+
+	// OpenTelemetry: when an OTLP endpoint is configured, every
+	// request handler, outbox dispatch and (future) DB call emits a
+	// span. When it is empty, the global tracer provider is the
+	// standard no-op so the rest of the framework can keep calling
+	// observability.Tracer(...) unconditionally.
+	tracingShutdown, err := observability.InitTracing(ctx, observability.TracingConfig{
+		Endpoint:    cfg.Platform.OtelEndpoint,
+		Insecure:    cfg.Platform.OtelInsecure,
+		ServiceName: cfg.App.Name,
+		Version:     cfg.App.Version,
+		Environment: cfg.App.Env,
+		SampleRatio: cfg.Platform.OtelSampleRatio,
+	})
+	if err != nil {
+		return fmt.Errorf("init tracing: %w", err)
+	}
+	defer func() {
+		if err := tracingShutdown(context.Background()); err != nil {
+			log.Warn().Err(err).Msg("tracer shutdown")
+		}
+	}()
 
 	pool, err := database.New(ctx, cfg.Database, log)
 	if err != nil {
@@ -79,6 +102,7 @@ func Run(ctx context.Context) error {
 		Description: "Auto-generated OpenAPI 3.1 spec for the goforge API.",
 	}, log)
 	registerOpenAPI(plat.OpenAPI)
+	platform.MountJWKS(app, tokens)
 
 	server.Register(app, handlers, tokens)
 

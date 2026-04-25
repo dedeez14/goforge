@@ -228,12 +228,21 @@ func (uc *AuthUseCase) issuePair(ctx context.Context, id uuid.UUID) (*TokenPair,
 	}
 	if uc.refresh != nil {
 		// Persist the refresh token so it can be rotated. Use the
-		// JTI from the freshly-signed JWT.
+		// JTI from the freshly-signed JWT. We just signed `refresh`
+		// with the same key/algorithm we're about to verify it
+		// with, so a Parse failure here is almost impossible — but
+		// when it does happen we MUST refuse to return the token
+		// pair: a successful return would hand the client a JWT
+		// the RefreshStore has never heard of, and the very next
+		// /refresh would 401 with auth.unknown_token, locking the
+		// user out.
 		claims, perr := uc.tokens.Parse(refresh)
-		if perr == nil {
-			if serr := uc.refresh.Save(ctx, claims.ID, id, refreshExp); serr != nil {
-				return nil, errs.Wrap(errs.KindInternal, "auth.refresh_store", "persist refresh token", serr)
-			}
+		if perr != nil {
+			return nil, errs.Wrap(errs.KindInternal, "auth.issue_pair",
+				"failed to read JTI from freshly-issued refresh token", perr)
+		}
+		if serr := uc.refresh.Save(ctx, claims.ID, id, refreshExp); serr != nil {
+			return nil, errs.Wrap(errs.KindInternal, "auth.refresh_store", "persist refresh token", serr)
 		}
 	}
 	return &TokenPair{AccessToken: access, RefreshToken: refresh, AccessExpiry: exp}, nil

@@ -1,0 +1,35 @@
+package dto
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+
+	"{{.Module}}/internal/domain/{{.Lower}}"
+)
+
+// Create{{.Name}}Request is the inbound payload for POST /{{.Plural}}.
+type Create{{.Name}}Request struct {
+	Name string `json:"name" validate:"required,min=1,max=255"`
+}
+
+// Update{{.Name}}Request is the inbound payload for PUT /{{.Plural}}/:id.
+type Update{{.Name}}Request struct {
+	Name string `json:"name" validate:"required,min=1,max=255"`
+}
+
+// {{.Name}}Response is the outbound shape for one {{.Lower}}.
+type {{.Name}}Response struct {
+	ID        uuid.UUID `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Map{{.Name}}ToResponse converts a domain object to a wire object.
+func Map{{.Name}}ToResponse(v *{{.Lower}}.{{.Name}}) {{.Name}}Response {
+	return {{.Name}}Response{
+		ID: v.ID, Name: v.Name,
+		CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
+	}
+}

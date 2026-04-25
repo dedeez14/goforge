@@ -55,10 +55,16 @@ type Database struct {
 }
 
 type JWT struct {
-	Secret     string        `mapstructure:"secret"      validate:"required,min=32"`
-	Issuer     string        `mapstructure:"issuer"      validate:"required"`
-	AccessTTL  time.Duration `mapstructure:"access_ttl"  validate:"required"`
-	RefreshTTL time.Duration `mapstructure:"refresh_ttl" validate:"required"`
+	Secret string `mapstructure:"secret" validate:"required,min=32"`
+	// NextSecrets is the list of additional HS256 secrets the
+	// verifier accepts during a key rotation. New tokens are always
+	// signed with Secret; NextSecrets is verify-only. Provide either
+	// the legacy secret being rotated out or the upcoming secret
+	// being rotated in.
+	NextSecrets []string      `mapstructure:"next_secrets"`
+	Issuer      string        `mapstructure:"issuer"      validate:"required"`
+	AccessTTL   time.Duration `mapstructure:"access_ttl"  validate:"required"`
+	RefreshTTL  time.Duration `mapstructure:"refresh_ttl" validate:"required"`
 }
 
 type Log struct {
@@ -80,6 +86,14 @@ type Platform struct {
 	MetricsEnabled     bool   `mapstructure:"metrics_enabled"`
 	TenantHeader       string `mapstructure:"tenant_header"`
 	AdminToken         string `mapstructure:"admin_token"`
+
+	// OpenTelemetry — when OtelEndpoint is non-empty, the process
+	// installs an OTLP/HTTP exporter and wraps requests, outbox
+	// dispatches and DB calls in spans. Empty endpoint means the
+	// global TracerProvider is no-op (zero overhead).
+	OtelEndpoint    string  `mapstructure:"otel_endpoint"`
+	OtelInsecure    bool    `mapstructure:"otel_insecure"`
+	OtelSampleRatio float64 `mapstructure:"otel_sample_ratio"`
 }
 
 type Security struct {
@@ -194,7 +208,7 @@ func allKeys() []string {
 		"database.dsn", "database.min_conns", "database.max_conns",
 		"database.max_conn_lifetime", "database.max_conn_idle_time",
 		"database.connect_timeout", "database.statement_cache",
-		"jwt.secret", "jwt.issuer", "jwt.access_ttl", "jwt.refresh_ttl",
+		"jwt.secret", "jwt.next_secrets", "jwt.issuer", "jwt.access_ttl", "jwt.refresh_ttl",
 		"log.level", "log.pretty",
 		"security.cors_allow_origins", "security.rate_limit_per_min", "security.trust_x_forwarded",
 		"security.argon_memory_kib", "security.argon_iters", "security.argon_parallel",
@@ -202,5 +216,6 @@ func allKeys() []string {
 		"platform.outbox_enabled", "platform.outbox_batch_size", "platform.outbox_interval_ms",
 		"platform.realtime_enabled", "platform.openapi_enabled", "platform.metrics_enabled",
 		"platform.tenant_header", "platform.admin_token",
+		"platform.otel_endpoint", "platform.otel_insecure", "platform.otel_sample_ratio",
 	}
 }
