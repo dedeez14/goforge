@@ -79,6 +79,7 @@ func Run(ctx context.Context) error {
 		Description: "Auto-generated OpenAPI 3.1 spec for the goforge API.",
 	}, log)
 	registerOpenAPI(plat.OpenAPI)
+	platform.MountJWKS(app, tokens)
 
 	server.Register(app, handlers, tokens)
 
