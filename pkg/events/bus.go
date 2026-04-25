@@ -145,3 +145,13 @@ type tenantKey struct{}
 func WithTenant(ctx context.Context, tenantID string) context.Context {
 	return context.WithValue(ctx, tenantKey{}, tenantID)
 }
+
+// TenantFromContext returns the tenant ID that pkg/tenant.WithID (or a
+// direct call to WithTenant) stored on ctx, or the empty string when
+// none is present. Packages that need the current tenant for a write
+// (e.g. the outbox) should call this helper instead of redeclaring a
+// private context key, which would never match the one used here.
+func TenantFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(tenantKey{}).(string)
+	return v
+}

@@ -58,9 +58,11 @@ func Append(ctx context.Context, tx pgx.Tx, topic string, payload any, opts ...A
 		cfg.id = uuid.NewString()
 	}
 	if cfg.tenantID == "" {
-		if tid, ok := ctx.Value(tenantContextKey{}).(string); ok {
-			cfg.tenantID = tid
-		}
+		// The tenant ID is propagated through the events package to
+		// avoid an import cycle with pkg/tenant. Re-using a private
+		// key declared locally here would never match because Go
+		// considers unexported types from different packages distinct.
+		cfg.tenantID = events.TenantFromContext(ctx)
 	}
 	const q = `
 		INSERT INTO outbox_messages (id, topic, tenant_id, payload, occurred_at)
@@ -69,12 +71,6 @@ func Append(ctx context.Context, tx pgx.Tx, topic string, payload any, opts ...A
 	_, err = tx.Exec(ctx, q, cfg.id, topic, cfg.tenantID, raw, cfg.occurredAt)
 	return err
 }
-
-// tenantContextKey mirrors the private key used by pkg/tenant; we
-// duplicate the type here to avoid an import cycle. The value used in
-// pkg/tenant is opaque, so the outbox falls back to reading the same
-// key from contextValue if available.
-type tenantContextKey struct{}
 
 // AppendOption tweaks an Append call. The defaults are good for the
 // common case; options exist mostly for tests and replay tooling.

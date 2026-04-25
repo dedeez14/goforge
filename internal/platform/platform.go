@@ -153,7 +153,11 @@ func (s *Services) mountRealtime(app *fiber.App) {
 	if !s.cfg.RealtimeEnabled {
 		return
 	}
-	stream := app.Group("/api/v1/stream", tenant.Middleware(tenant.HeaderResolver(s.cfg.TenantHeader)))
+	// Use OptionalMiddleware so the SSE endpoint stays usable in
+	// single-tenant deployments. Clients that send X-Tenant-ID get
+	// scoped events; clients that don't, see every event the bus
+	// publishes.
+	stream := app.Group("/api/v1/stream", tenant.OptionalMiddleware(tenant.HeaderResolver(s.cfg.TenantHeader)))
 	stream.Get("", s.Realtime.Handler())
 }
 

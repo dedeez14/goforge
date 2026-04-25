@@ -70,8 +70,23 @@ var ErrMissing = errs.Unauthorized("tenant.missing", "tenant context is required
 // or JWT-claim resolvers.
 type Resolver func(c *fiber.Ctx) (ID, error)
 
+// MaxTenantIDLength bounds the size of an accepted tenant identifier.
+// Real tenant IDs are short (UUID, slug, ULID); rejecting anything
+// longer prevents memory amplification when an attacker sends a
+// gigantic X-Tenant-ID hoping it propagates into a context value, a
+// log line, or a downstream key.
+const MaxTenantIDLength = 128
+
+// ErrInvalid is returned by the default HeaderResolver when the supplied
+// tenant identifier is too long or contains characters that have no
+// business in a tenant id (whitespace inside, control bytes, …). The
+// caller's HTTP layer maps this to 400 Bad Request.
+var ErrInvalid = errs.InvalidInput("tenant.invalid", "invalid tenant identifier")
+
 // HeaderResolver returns a Resolver that reads the tenant ID from the
-// configured HTTP header. Empty values yield ErrMissing.
+// configured HTTP header. Empty values yield ErrMissing; values that
+// exceed MaxTenantIDLength or contain illegal characters yield
+// ErrInvalid.
 func HeaderResolver(header string) Resolver {
 	header = strings.TrimSpace(header)
 	if header == "" {
@@ -81,6 +96,15 @@ func HeaderResolver(header string) Resolver {
 		raw := strings.TrimSpace(c.Get(header))
 		if raw == "" {
 			return "", ErrMissing
+		}
+		if len(raw) > MaxTenantIDLength {
+			return "", ErrInvalid
+		}
+		for i := 0; i < len(raw); i++ {
+			ch := raw[i]
+			if ch < 0x20 || ch == 0x7f {
+				return "", ErrInvalid
+			}
 		}
 		return ID(raw), nil
 	}
@@ -99,6 +123,27 @@ func Middleware(resolve Resolver) fiber.Handler {
 			return err
 		}
 		c.SetUserContext(WithID(c.UserContext(), id))
+		return c.Next()
+	}
+}
+
+// OptionalMiddleware behaves like Middleware but never rejects a
+// request. When the resolver returns a tenant the context is updated
+// the same way; when it returns ErrMissing (or any other resolver
+// error) the request is forwarded as-is so downstream handlers can
+// decide whether the tenant is required for that particular path.
+//
+// It exists for endpoints that benefit from tenant scoping when one is
+// present (e.g. the realtime SSE bridge filtering by tenant) but
+// should still serve clients running in single-tenant mode.
+func OptionalMiddleware(resolve Resolver) fiber.Handler {
+	if resolve == nil {
+		resolve = HeaderResolver("X-Tenant-ID")
+	}
+	return func(c *fiber.Ctx) error {
+		if id, err := resolve(c); err == nil && !id.Empty() {
+			c.SetUserContext(WithID(c.UserContext(), id))
+		}
 		return c.Next()
 	}
 }
