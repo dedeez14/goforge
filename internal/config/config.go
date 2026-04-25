@@ -23,6 +23,7 @@ type Config struct {
 	JWT      JWT      `mapstructure:"jwt"      validate:"required"`
 	Log      Log      `mapstructure:"log"      validate:"required"`
 	Security Security `mapstructure:"security" validate:"required"`
+	Platform Platform `mapstructure:"platform"`
 }
 
 type App struct {
@@ -63,6 +64,22 @@ type JWT struct {
 type Log struct {
 	Level  string `mapstructure:"level" validate:"oneof=trace debug info warn error fatal panic disabled"`
 	Pretty bool   `mapstructure:"pretty"`
+}
+
+// Platform groups the optional platform-feature toggles. Each module
+// is opt-in and can be wired off independently in environments that
+// don't need it (e.g. realtime SSE in batch jobs).
+type Platform struct {
+	IdempotencyEnabled bool   `mapstructure:"idempotency_enabled"`
+	IdempotencyTTL     string `mapstructure:"idempotency_ttl"`
+	OutboxEnabled      bool   `mapstructure:"outbox_enabled"`
+	OutboxBatchSize    int    `mapstructure:"outbox_batch_size"`
+	OutboxIntervalMs   int    `mapstructure:"outbox_interval_ms"`
+	RealtimeEnabled    bool   `mapstructure:"realtime_enabled"`
+	OpenAPIEnabled     bool   `mapstructure:"openapi_enabled"`
+	MetricsEnabled     bool   `mapstructure:"metrics_enabled"`
+	TenantHeader       string `mapstructure:"tenant_header"`
+	AdminToken         string `mapstructure:"admin_token"`
 }
 
 type Security struct {
@@ -153,6 +170,17 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("security.argon_memory_kib", 64*1024)
 	v.SetDefault("security.argon_iters", 3)
 	v.SetDefault("security.argon_parallel", 2)
+
+	v.SetDefault("platform.idempotency_enabled", true)
+	v.SetDefault("platform.idempotency_ttl", "24h")
+	v.SetDefault("platform.outbox_enabled", true)
+	v.SetDefault("platform.outbox_batch_size", 100)
+	v.SetDefault("platform.outbox_interval_ms", 1000)
+	v.SetDefault("platform.realtime_enabled", true)
+	v.SetDefault("platform.openapi_enabled", true)
+	v.SetDefault("platform.metrics_enabled", true)
+	v.SetDefault("platform.tenant_header", "X-Tenant-ID")
+	v.SetDefault("platform.admin_token", "")
 }
 
 // allKeys enumerates every configuration key. Used to bind env vars
@@ -170,5 +198,9 @@ func allKeys() []string {
 		"log.level", "log.pretty",
 		"security.cors_allow_origins", "security.rate_limit_per_min", "security.trust_x_forwarded",
 		"security.argon_memory_kib", "security.argon_iters", "security.argon_parallel",
+		"platform.idempotency_enabled", "platform.idempotency_ttl",
+		"platform.outbox_enabled", "platform.outbox_batch_size", "platform.outbox_interval_ms",
+		"platform.realtime_enabled", "platform.openapi_enabled", "platform.metrics_enabled",
+		"platform.tenant_header", "platform.admin_token",
 	}
 }
