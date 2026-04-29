@@ -6,7 +6,25 @@ import (
 	"github.com/dedeez14/goforge/internal/adapter/http/handler"
 	"github.com/dedeez14/goforge/internal/adapter/http/middleware"
 	"github.com/dedeez14/goforge/internal/infrastructure/security"
+	"github.com/dedeez14/goforge/pkg/httpcache"
 )
+
+// perUserCache builds a cache middleware instance for endpoints whose
+// response varies per user. Vary: Authorization, X-Tenant-ID is
+// mandatory: without it, a browser that logs in as a different user
+// within the max-age window can be served the previous user's cached
+// copy (the cache is addressed by URL, and conditional-GET
+// revalidation only kicks in after the response is stale). Cache-
+// Control: private additionally forbids shared caches from storing
+// these responses.
+func perUserCache() fiber.Handler {
+	return httpcache.New(httpcache.Options{
+		MaxAge:         30,
+		Private:        true,
+		MustRevalidate: true,
+		Vary:           []string{"Authorization", "X-Tenant-ID"},
+	})
+}
 
 // Handlers bundles every handler used by the HTTP layer so Register()
 // can remain a single, readable routing declaration.
@@ -74,9 +92,12 @@ func Register(app *fiber.App, h Handlers, tokens security.TokenIssuer, ac Access
 		keys.Delete("/:id", h.APIKeys.Revoke)
 	}
 
-	// "what can I do here" — every authenticated user may ask.
+	// "what can I do here" — every authenticated user may ask. The
+	// SPA reloads this on every page navigation, so conditional-GET
+	// caching is a meaningful CPU/egress win: when nothing has
+	// changed, the response is a 304 with zero body bytes.
 	if h.Roles != nil {
-		authed.Get("/me/access", h.Roles.MyAccess)
+		authed.Get("/me/access", perUserCache(), h.Roles.MyAccess)
 	}
 
 	// Self-service device list. Same hardening as /api-keys: an
@@ -92,9 +113,12 @@ func Register(app *fiber.App, h Handlers, tokens security.TokenIssuer, ac Access
 	}
 
 	// Menus (when wired): every authenticated user can fetch their
-	// visible menu tree; admin CRUD is gated by menu.manage.
+	// visible menu tree; admin CRUD is gated by menu.manage. The
+	// tree is per-user (permission-pruned) so the cache is marked
+	// private; the SPA hits this on every render, so conditional-GET
+	// caching is worth wiring.
 	if h.Menus != nil && ac.Resolver != nil {
-		authed.Get("/menus/mine", h.Menus.MyMenu)
+		authed.Get("/menus/mine", perUserCache(), h.Menus.MyMenu)
 
 		menuAdmin := authed.Group("/menus", middleware.RequirePermission("menu.manage", ac.Resolver, ac.Tenant))
 		menuAdmin.Get("/", h.Menus.List)

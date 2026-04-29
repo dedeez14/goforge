@@ -30,6 +30,7 @@ import (
 	"github.com/dedeez14/goforge/internal/config"
 	"github.com/dedeez14/goforge/pkg/adminui"
 	"github.com/dedeez14/goforge/pkg/events"
+	"github.com/dedeez14/goforge/pkg/httpcache"
 	"github.com/dedeez14/goforge/pkg/idempotency"
 	"github.com/dedeez14/goforge/pkg/module"
 	"github.com/dedeez14/goforge/pkg/observability"
@@ -160,7 +161,13 @@ func (s *Services) mountOpenAPI(app *fiber.App) {
 	if !s.cfg.OpenAPIEnabled {
 		return
 	}
-	app.Get("/openapi.json", s.OpenAPI.JSONHandler())
+	// The OpenAPI document only changes when the binary is redeployed,
+	// so it is an ideal conditional-GET target. 5-min max-age + ETag
+	// lets CDNs / API gateways cache it aggressively while still
+	// picking up changes on the next rollout.
+	app.Get("/openapi.json",
+		httpcache.New(httpcache.Options{MaxAge: 300, Public: true, MustRevalidate: true}),
+		s.OpenAPI.JSONHandler())
 	app.Get("/docs", s.OpenAPI.SwaggerUIHandler("/openapi.json"))
 }
 
