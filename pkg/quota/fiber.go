@@ -14,9 +14,9 @@ import (
 // Middleware upstream), so the guard is per-tenant automatically.
 //
 // On a blocked request, the middleware responds 429 with the
-// ratelimit.exceeded envelope and the standard X-Ratelimit-*
-// headers. On a cache outage the request is allowed through — a
-// quota miss is vastly preferable to an outage storm.
+// quota.exceeded envelope and the standard X-Ratelimit-* headers.
+// On a cache outage the request is allowed through — a quota miss
+// is vastly preferable to an outage storm.
 //
 // For routes that must always carry a tenant (most business
 // endpoints) install tenant.Middleware before this. For routes
