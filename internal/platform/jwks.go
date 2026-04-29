@@ -4,6 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/dedeez14/goforge/internal/infrastructure/security"
+	"github.com/dedeez14/goforge/pkg/httpcache"
 )
 
 // MountJWKS exposes the issuer's public key set at
@@ -21,12 +22,17 @@ import (
 // security.PublicKeySetProvider and have their actual public keys
 // returned here.
 func MountJWKS(app *fiber.App, issuer security.TokenIssuer) {
-	app.Get("/.well-known/jwks.json", func(c *fiber.Ctx) error {
+	// JWKS is a classic conditional-GET target: API gateways and
+	// downstream services poll it to refresh their verification key
+	// sets, and the document only changes during a key rotation
+	// (minutes to months apart). Pairing max-age=300 with a strong
+	// ETag means steady-state polls return 304 with no body.
+	cache := httpcache.New(httpcache.Options{MaxAge: 300, Public: true, MustRevalidate: true})
+	app.Get("/.well-known/jwks.json", cache, func(c *fiber.Ctx) error {
 		jwks := security.JWKS{Keys: []security.JWK{}}
 		if p, ok := issuer.(security.PublicKeySetProvider); ok {
 			jwks = p.PublicKeySet()
 		}
-		c.Set(fiber.HeaderCacheControl, "public, max-age=300")
 		return c.Status(fiber.StatusOK).JSON(jwks)
 	})
 }
