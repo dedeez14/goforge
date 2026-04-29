@@ -23,17 +23,25 @@ func NewUserHandler(uc *usecase.UserUseCase) *UserHandler {
 	return &UserHandler{uc: uc}
 }
 
+// userListMaxLimit mirrors the repository-side safety cap. The
+// handler clamps to the same value so the response's echoed limit
+// cannot diverge from the number of rows actually returned - a
+// client computing "next page" from response.limit would otherwise
+// silently drop users beyond the first 200.
+const userListMaxLimit = 200
+
 // List GET /api/v1/users?limit=50&offset=0&q=substring
 //
 // Admin-only (gated by rbac.manage at the route layer). Pagination
-// defaults to a 50-row page, capped at the repository's safety
-// ceiling. `q` is a case-insensitive substring match against email
-// so operators can find a user without scanning the UI's full
-// page list.
+// defaults to a 50-row page, capped at userListMaxLimit. `q` is a
+// case-insensitive substring match against email so operators can
+// find a user without scrolling the UI's full page list.
 func (h *UserHandler) List(c *fiber.Ctx) error {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	if limit <= 0 {
 		limit = 50
+	} else if limit > userListMaxLimit {
+		limit = userListMaxLimit
 	}
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	if offset < 0 {
