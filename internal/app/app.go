@@ -104,9 +104,14 @@ func Run(ctx context.Context) error {
 	userRoles := pgrepo.NewUserRoleRepository(pool)
 	menus := pgrepo.NewMenuRepository(pool)
 	apiKeys := pgrepo.NewAPIKeyRepository(pool)
+	sessions := pgrepo.NewSessionRepository(pool)
 
 	// Use-cases.
-	authUC := usecase.NewAuthUseCase(users, hasher, tokens, refreshStore, log)
+	// Refresh-token TTL is sourced from the configured JWT refresh
+	// expiry so the sessions table's expires_at advances in lockstep
+	// with the issued refresh token's exp claim. Passing 0 lets the
+	// use-case fall back to its own default.
+	authUC := usecase.NewAuthUseCase(users, hasher, tokens, refreshStore, sessions, cfg.JWT.RefreshTTL, log)
 	// audit is wired by the platform.Build call below; for now the
 	// RBAC + Menu use-cases run with a nil auditor (no-op). Apps
 	// that want a persisted audit trail should pass an *audit.Logger.
@@ -123,6 +128,7 @@ func Run(ctx context.Context) error {
 		apiKeyEnv = "live"
 	}
 	apiKeyUC := usecase.NewAPIKeyUseCase(apiKeys, apiKeyEnv)
+	sessionUC := usecase.NewSessionUseCase(sessions)
 
 	// Handlers.
 	handlers := server.Handlers{
@@ -132,6 +138,7 @@ func Run(ctx context.Context) error {
 		Roles:       handler.NewRoleHandler(roleUC, accessUC),
 		Menus:       handler.NewMenuHandler(menuUC, accessUC),
 		APIKeys:     handler.NewAPIKeyHandler(apiKeyUC),
+		Sessions:    handler.NewSessionHandler(sessionUC),
 	}
 
 	app := server.New(cfg, log, i18nBundle)
@@ -281,6 +288,24 @@ func registerOpenAPI(doc *openapi.Document) {
 	doc.AddOperation(openapi.Operation{
 		Method: "DELETE", Path: "/api/v1/api-keys/{id}",
 		Summary: "Revoke an API key by id", Tags: []string{"api-keys"},
+		ResponseCode: 204, RequiresAuth: true,
+	})
+	doc.AddOperation(openapi.Operation{
+		Method: "GET", Path: "/api/v1/me/sessions",
+		Summary: "List the caller's active devices", Tags: []string{"sessions"},
+		ResponseType: []dto.SessionResponse{},
+		ResponseCode: 200, RequiresAuth: true,
+	})
+	doc.AddOperation(openapi.Operation{
+		Method: "DELETE", Path: "/api/v1/me/sessions",
+		Summary:      "Logout every device except the caller's",
+		Tags:         []string{"sessions"},
+		ResponseType: dto.RevokeAllSessionsResponse{},
+		ResponseCode: 200, RequiresAuth: true,
+	})
+	doc.AddOperation(openapi.Operation{
+		Method: "DELETE", Path: "/api/v1/me/sessions/{id}",
+		Summary: "Revoke a single session by id", Tags: []string{"sessions"},
 		ResponseCode: 204, RequiresAuth: true,
 	})
 }

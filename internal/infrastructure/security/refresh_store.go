@@ -16,16 +16,24 @@ import (
 // enforce single-use semantics (rotation). The database stores a hash
 // of the JTI, never the raw token, so a DB read alone cannot be used
 // to mint replays.
+//
+// The sessionID parameter on Save ties each token to a sessions row,
+// letting the use-case cascade-revoke tokens when the user kills a
+// device. Pass uuid.Nil for flows that are not session-bound (the
+// non-interactive API-key exchange, say).
 type RefreshStore interface {
-	// Save persists a freshly-issued token. Called immediately after
-	// the JWT is signed by the issuer.
-	Save(ctx context.Context, jti string, userID uuid.UUID, expiresAt time.Time) error
+	// Save persists a freshly-issued token. Called immediately
+	// after the JWT is signed by the issuer.
+	Save(ctx context.Context, jti string, userID, sessionID uuid.UUID, expiresAt time.Time) error
 	// Use atomically marks jti as used. It returns ErrUnknownToken
 	// when the JTI was never issued (or already cleaned up) and
 	// ErrTokenReused when the JTI has already been consumed or
 	// revoked. On reuse, the caller is expected to revoke every
-	// remaining refresh token for the user.
-	Use(ctx context.Context, jti string) (userID uuid.UUID, err error)
+	// remaining refresh token for the user. sessionID is returned
+	// so the caller can Touch the owning session without an extra
+	// DB round-trip; it is uuid.Nil for tokens saved without a
+	// session binding (legacy or non-interactive flows).
+	Use(ctx context.Context, jti string) (userID, sessionID uuid.UUID, err error)
 	// LinkReplacement records that newJTI is the rotation of jti.
 	LinkReplacement(ctx context.Context, jti, newJTI string) error
 	// RevokeAllForUser kills every non-revoked, non-used token for
@@ -60,48 +68,61 @@ func NewPostgresRefreshStore(pool *pgxpool.Pool) *PostgresRefreshStore {
 	return &PostgresRefreshStore{pool: pool}
 }
 
-// Save implements RefreshStore.
-func (s *PostgresRefreshStore) Save(ctx context.Context, jti string, userID uuid.UUID, expiresAt time.Time) error {
-	const q = `INSERT INTO refresh_tokens (jti_hash, user_id, expires_at) VALUES ($1, $2, $3)`
-	_, err := s.pool.Exec(ctx, q, HashJTI(jti), userID, expiresAt)
+// Save implements RefreshStore. sessionID may be uuid.Nil for flows
+// that are not session-bound; in that case the row stores SQL NULL
+// in session_id rather than the zero UUID, so future joins against
+// sessions stay correct.
+func (s *PostgresRefreshStore) Save(ctx context.Context, jti string, userID, sessionID uuid.UUID, expiresAt time.Time) error {
+	const q = `INSERT INTO refresh_tokens (jti_hash, user_id, session_id, expires_at) VALUES ($1, $2, $3, $4)`
+	var sid any
+	if sessionID != uuid.Nil {
+		sid = sessionID
+	}
+	_, err := s.pool.Exec(ctx, q, HashJTI(jti), userID, sid, expiresAt)
 	return err
 }
 
 // Use implements RefreshStore. The UPDATE is atomic: only one
 // concurrent caller can set used_at; the others see RowsAffected() == 0
-// and receive ErrTokenReused.
-func (s *PostgresRefreshStore) Use(ctx context.Context, jti string) (uuid.UUID, error) {
+// and receive ErrTokenReused. sessionID is the id of the session the
+// token belongs to, or uuid.Nil when the row was saved without one.
+func (s *PostgresRefreshStore) Use(ctx context.Context, jti string) (uuid.UUID, uuid.UUID, error) {
 	hash := HashJTI(jti)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var userID uuid.UUID
+	var sessionID *uuid.UUID
 	var usedAt, revokedAt *time.Time
 	var expiresAt time.Time
-	err = tx.QueryRow(ctx, `SELECT user_id, used_at, revoked_at, expires_at FROM refresh_tokens WHERE jti_hash = $1 FOR UPDATE`, hash).
-		Scan(&userID, &usedAt, &revokedAt, &expiresAt)
+	err = tx.QueryRow(ctx, `SELECT user_id, session_id, used_at, revoked_at, expires_at FROM refresh_tokens WHERE jti_hash = $1 FOR UPDATE`, hash).
+		Scan(&userID, &sessionID, &usedAt, &revokedAt, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, ErrUnknownToken
+		return uuid.Nil, uuid.Nil, ErrUnknownToken
 	}
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
+	}
+	sid := uuid.Nil
+	if sessionID != nil {
+		sid = *sessionID
 	}
 	if revokedAt != nil || usedAt != nil {
-		return userID, ErrTokenReused
+		return userID, sid, ErrTokenReused
 	}
 	if time.Now().UTC().After(expiresAt) {
-		return userID, ErrTokenReused
+		return userID, sid, ErrTokenReused
 	}
 	if _, err := tx.Exec(ctx, `UPDATE refresh_tokens SET used_at = now() WHERE jti_hash = $1`, hash); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
-	return userID, nil
+	return userID, sid, nil
 }
 
 // LinkReplacement implements RefreshStore.
@@ -141,6 +162,7 @@ type MemoryRefreshStore struct {
 
 type memRecord struct {
 	UserID    uuid.UUID
+	SessionID uuid.UUID
 	ExpiresAt time.Time
 	UsedAt    *time.Time
 	Revoked   bool
@@ -152,30 +174,30 @@ func NewMemoryRefreshStore() *MemoryRefreshStore {
 }
 
 // Save implements RefreshStore.
-func (s *MemoryRefreshStore) Save(_ context.Context, jti string, userID uuid.UUID, expiresAt time.Time) error {
+func (s *MemoryRefreshStore) Save(_ context.Context, jti string, userID, sessionID uuid.UUID, expiresAt time.Time) error {
 	s.mu.lock()
 	defer s.mu.unlock()
-	s.records[HashJTI(jti)] = &memRecord{UserID: userID, ExpiresAt: expiresAt}
+	s.records[HashJTI(jti)] = &memRecord{UserID: userID, SessionID: sessionID, ExpiresAt: expiresAt}
 	return nil
 }
 
 // Use implements RefreshStore.
-func (s *MemoryRefreshStore) Use(_ context.Context, jti string) (uuid.UUID, error) {
+func (s *MemoryRefreshStore) Use(_ context.Context, jti string) (uuid.UUID, uuid.UUID, error) {
 	s.mu.lock()
 	defer s.mu.unlock()
 	rec, ok := s.records[HashJTI(jti)]
 	if !ok {
-		return uuid.Nil, ErrUnknownToken
+		return uuid.Nil, uuid.Nil, ErrUnknownToken
 	}
 	if rec.Revoked || rec.UsedAt != nil {
-		return rec.UserID, ErrTokenReused
+		return rec.UserID, rec.SessionID, ErrTokenReused
 	}
 	if time.Now().UTC().After(rec.ExpiresAt) {
-		return rec.UserID, ErrTokenReused
+		return rec.UserID, rec.SessionID, ErrTokenReused
 	}
 	now := time.Now().UTC()
 	rec.UsedAt = &now
-	return rec.UserID, nil
+	return rec.UserID, rec.SessionID, nil
 }
 
 // LinkReplacement implements RefreshStore (no-op for tests).

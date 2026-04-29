@@ -73,14 +73,14 @@ func newAuthFixture(t *testing.T) *AuthUseCase {
 		Secret: strings.Repeat("k", 32), Issuer: "test",
 		AccessTTL: 5 * time.Minute, RefreshTTL: time.Hour,
 	})
-	return NewAuthUseCase(repo, hasher, tokens, security.NewMemoryRefreshStore(), zerolog.Nop())
+	return NewAuthUseCase(repo, hasher, tokens, security.NewMemoryRefreshStore(), nil, time.Hour, zerolog.Nop())
 }
 
 func TestAuth_RegisterThenLogin(t *testing.T) {
 	uc := newAuthFixture(t)
 	ctx := context.Background()
 
-	u, tp, err := uc.Register(ctx, RegisterInput{Email: "Alice@Example.com", Password: "hunter2hunter2", Name: "Alice"})
+	u, tp, err := uc.Register(ctx, RegisterInput{Email: "Alice@Example.com", Password: "hunter2hunter2", Name: "Alice"}, SessionContext{})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestAuth_RegisterThenLogin(t *testing.T) {
 		t.Fatal("expected both tokens")
 	}
 
-	_, tp2, err := uc.Login(ctx, LoginInput{Email: "alice@example.com", Password: "hunter2hunter2"})
+	_, tp2, err := uc.Login(ctx, LoginInput{Email: "alice@example.com", Password: "hunter2hunter2"}, SessionContext{})
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -103,10 +103,10 @@ func TestAuth_RegisterThenLogin(t *testing.T) {
 func TestAuth_RegisterEmailTaken(t *testing.T) {
 	uc := newAuthFixture(t)
 	ctx := context.Background()
-	if _, _, err := uc.Register(ctx, RegisterInput{Email: "a@b.co", Password: "password", Name: "A"}); err != nil {
+	if _, _, err := uc.Register(ctx, RegisterInput{Email: "a@b.co", Password: "password", Name: "A"}, SessionContext{}); err != nil {
 		t.Fatalf("first register: %v", err)
 	}
-	_, _, err := uc.Register(ctx, RegisterInput{Email: "A@B.co", Password: "password", Name: "A"})
+	_, _, err := uc.Register(ctx, RegisterInput{Email: "A@B.co", Password: "password", Name: "A"}, SessionContext{})
 	if !errors.Is(err, user.ErrEmailTaken) {
 		t.Fatalf("expected ErrEmailTaken, got %v", err)
 	}
@@ -115,15 +115,15 @@ func TestAuth_RegisterEmailTaken(t *testing.T) {
 func TestAuth_LoginInvalid(t *testing.T) {
 	uc := newAuthFixture(t)
 	ctx := context.Background()
-	_, _, err := uc.Login(ctx, LoginInput{Email: "missing@example.com", Password: "x"})
+	_, _, err := uc.Login(ctx, LoginInput{Email: "missing@example.com", Password: "x"}, SessionContext{})
 	if !errs.Is(err, errs.KindUnauthorized) {
 		t.Fatalf("missing user should map to unauthorized, got %v", err)
 	}
 
-	if _, _, err := uc.Register(ctx, RegisterInput{Email: "z@b.co", Password: "rightpassword", Name: "Z"}); err != nil {
+	if _, _, err := uc.Register(ctx, RegisterInput{Email: "z@b.co", Password: "rightpassword", Name: "Z"}, SessionContext{}); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	_, _, err = uc.Login(ctx, LoginInput{Email: "z@b.co", Password: "wrong"})
+	_, _, err = uc.Login(ctx, LoginInput{Email: "z@b.co", Password: "wrong"}, SessionContext{})
 	if !errs.Is(err, errs.KindUnauthorized) {
 		t.Fatalf("wrong password should map to unauthorized, got %v", err)
 	}
@@ -132,7 +132,7 @@ func TestAuth_LoginInvalid(t *testing.T) {
 func TestAuth_Refresh(t *testing.T) {
 	uc := newAuthFixture(t)
 	ctx := context.Background()
-	_, tp, err := uc.Register(ctx, RegisterInput{Email: "r@b.co", Password: "rightpassword", Name: "R"})
+	_, tp, err := uc.Register(ctx, RegisterInput{Email: "r@b.co", Password: "rightpassword", Name: "R"}, SessionContext{})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestAuth_Refresh(t *testing.T) {
 func TestAuth_RefreshTokenIsSingleUse(t *testing.T) {
 	uc := newAuthFixture(t)
 	ctx := context.Background()
-	_, tp, err := uc.Register(ctx, RegisterInput{Email: "rot@b.co", Password: "rightpassword", Name: "R"})
+	_, tp, err := uc.Register(ctx, RegisterInput{Email: "rot@b.co", Password: "rightpassword", Name: "R"}, SessionContext{})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestAuth_RefreshTokenIsSingleUse(t *testing.T) {
 func TestAuth_RefreshReuseRevokesAllTokens(t *testing.T) {
 	uc := newAuthFixture(t)
 	ctx := context.Background()
-	_, tp1, err := uc.Register(ctx, RegisterInput{Email: "kill@b.co", Password: "rightpassword", Name: "K"})
+	_, tp1, err := uc.Register(ctx, RegisterInput{Email: "kill@b.co", Password: "rightpassword", Name: "K"}, SessionContext{})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestAuth_LoginTimingEqualization(t *testing.T) {
 	}
 	uc := newAuthFixture(t)
 	ctx := context.Background()
-	if _, _, err := uc.Register(ctx, RegisterInput{Email: "exists@b.co", Password: "rightpassword", Name: "E"}); err != nil {
+	if _, _, err := uc.Register(ctx, RegisterInput{Email: "exists@b.co", Password: "rightpassword", Name: "E"}, SessionContext{}); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -221,7 +221,7 @@ func TestAuth_LoginTimingEqualization(t *testing.T) {
 		var total time.Duration
 		for i := 0; i < samples; i++ {
 			start := time.Now()
-			_, _, _ = uc.Login(ctx, LoginInput{Email: email, Password: "wrongpassword"})
+			_, _, _ = uc.Login(ctx, LoginInput{Email: email, Password: "wrongpassword"}, SessionContext{})
 			total += time.Since(start)
 		}
 		return total / samples
