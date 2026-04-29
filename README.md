@@ -337,6 +337,8 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 - [`docs/sessions.md`](./docs/sessions.md) — self-service `/me/sessions`, refresh-token rotation, cascade revocation.
 - [`docs/api-keys.md`](./docs/api-keys.md) — scoped rotatable API keys for service-to-service traffic.
 - [`docs/read-replicas.md`](./docs/read-replicas.md) — optional PostgreSQL read-replica routing via `pkg/db.Router`.
+- [`docs/pgbouncer.md`](./docs/pgbouncer.md) — PgBouncer sizing, configuration, and local validation via docker-compose overlay.
+- [`docs/graceful-shutdown.md`](./docs/graceful-shutdown.md) — three-phase shutdown with `/readyz` drain for zero-5xx k8s rollouts.
 - [`docs/devcontainer.md`](./docs/devcontainer.md) — one-click VS Code / Codespaces workspace.
 - [`docs/sdk-typescript.md`](./docs/sdk-typescript.md) — TypeScript SDK auto-generated from `/openapi.json`.
 - [`docs/admin-ui.md`](./docs/admin-ui.md) — bundled admin SPA at `/panel/` (users, roles, permissions, menus, sessions, API keys).

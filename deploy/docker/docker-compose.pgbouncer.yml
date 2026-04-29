@@ -1,0 +1,49 @@
+name: goforge-pgbouncer
+
+# Overlay that puts PgBouncer between the goforge API and Postgres.
+# Use this to validate PgBouncer configuration locally before
+# rolling it into production.
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.pgbouncer.yml \
+#     up --build
+#
+# The api service switches its DSN to the bouncer (port 6432) and
+# sets statement_cache=false so pgx falls back to the simple query
+# protocol (required in transaction-pool mode). Every other knob
+# stays identical to the non-bounced compose file.
+
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1-p0
+    container_name: goforge-pgbouncer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "6432:6432"
+    volumes:
+      - ../pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      # Provide a real userlist.txt at deploy time - the .example in
+      # repo is a placeholder. In dev, the image can generate one
+      # from $DB_USER + $DB_PASSWORD if you prefer (see its README).
+      - ../pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U goforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    # Override of docker-compose.yml#api: route through the bouncer
+    # and turn the pgx statement cache off so pgx uses the simple
+    # query protocol (transaction-pool mode is incompatible with
+    # prepared statements).
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    environment:
+      GOFORGE_DATABASE_DSN: postgres://goforge:goforge@pgbouncer:6432/goforge?sslmode=disable
+      GOFORGE_DATABASE_STATEMENT_CACHE: "false"
