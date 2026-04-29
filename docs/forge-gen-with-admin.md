@@ -14,7 +14,7 @@ In addition to the usual set of files (domain, use case, repo, DTO,
 handler, migration, test), this produces one extra file:
 
 ```
-internal/app/admin_invoice.go
+internal/platform/admin_invoice.go
 ```
 
 The file declares a single function:
@@ -23,15 +23,19 @@ The file declares a single function:
 func InvoiceAdminResource() adminui.Resource { ... }
 ```
 
-Wire it into `internal/platform/platform.go` where `adminui.Mount`
-is invoked:
+The companion lives in **package `platform`** deliberately:
+`internal/app` already imports `internal/platform`, so putting the
+companion in `app` would create a reverse import cycle. Keeping it
+in the same package as the `adminui.Mount` callsite makes wiring a
+one-line change with no new imports:
 
 ```go
+// internal/platform/platform.go
 adminui.Mount(app, adminui.Config{
     Enabled: cfg.AdminUIEnabled,
     Path:    cfg.AdminUIPath,
 },
-    adminui.WithResources(app.InvoiceAdminResource()),
+    adminui.WithResources(InvoiceAdminResource()),
 )
 ```
 
@@ -54,7 +58,7 @@ backed by a generic list / create / edit / delete UI that speaks to
 ## Tuning the generated file
 
 The template uses a safe default set of columns (`name`, `id`,
-`created_at`). Edit `internal/app/admin_<lc>.go` after generation to:
+`created_at`). Edit `internal/platform/admin_<lc>.go` after generation to:
 
 - Change column types (`text`, `number`, `textarea`, `checkbox`,
   `date`, `email`). Unknown types degrade to `text`.

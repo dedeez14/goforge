@@ -51,8 +51,11 @@ type Resource struct {
 // templates only", matching the pre-option callsite.
 type Options struct {
 	// WithAdmin, when true, additionally emits the admin UI
-	// companion file (internal/app/admin_<lc>.go) which declares
-	// the adminui.Resource for this aggregate.
+	// companion file (internal/platform/admin_<lc>.go) which
+	// declares the adminui.Resource for this aggregate. The file
+	// is placed in package platform so Build() in that package
+	// can call it directly without introducing a reverse import
+	// cycle (internal/app already imports internal/platform).
 	WithAdmin bool
 }
 

@@ -71,7 +71,10 @@ func TestGenerateWithOptions_WithAdmin(t *testing.T) {
 		t.Fatalf("GenerateWithOptions: %v", err)
 	}
 
-	want := "internal/app/admin_invoice.go"
+	// The companion lives in package platform so it does not create
+	// a reverse import cycle (internal/app already imports
+	// internal/platform). Build() in platform can call it directly.
+	want := "internal/platform/admin_invoice.go"
 	full := filepath.Join(root, want)
 	if _, err := os.Stat(full); err != nil {
 		t.Fatalf("expected admin companion %s: %v", want, err)
@@ -83,7 +86,7 @@ func TestGenerateWithOptions_WithAdmin(t *testing.T) {
 	}
 	b := string(body)
 	for _, must := range []string{
-		"package app",
+		"package platform",
 		"InvoiceAdminResource()",
 		"adminui.Resource",
 		"Name:       \"invoices\"",
@@ -115,7 +118,7 @@ func TestGenerate_NoAdminByDefault(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 	// No admin companion should be emitted unless explicitly asked for.
-	if _, err := os.Stat(filepath.Join(root, "internal/app/admin_thing.go")); err == nil {
+	if _, err := os.Stat(filepath.Join(root, "internal/platform/admin_thing.go")); err == nil {
 		t.Fatalf("admin companion must not be emitted by default")
 	}
 }

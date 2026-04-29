@@ -65,7 +65,7 @@ func runGenResource(args []string) error {
 		fmt.Println("admin UI integration:")
 		fmt.Printf("  5. In internal/platform/platform.go, extend the adminui.Mount call:\n")
 		fmt.Printf("       adminui.Mount(app, adminui.Config{...},\n")
-		fmt.Printf("           adminui.WithResources(app.%sAdminResource()),\n", *name)
+		fmt.Printf("           adminui.WithResources(%sAdminResource()),\n", *name)
 		fmt.Printf("       )\n")
 		fmt.Printf("  6. Reload /panel/ - the %s tab is now rendered.\n", strings.ToLower(*name)+"s")
 	}
