@@ -39,9 +39,17 @@ type HTTP struct {
 	WriteTimeout    time.Duration `mapstructure:"write_timeout"`
 	IdleTimeout     time.Duration `mapstructure:"idle_timeout"`
 	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
-	BodyLimitBytes  int           `mapstructure:"body_limit_bytes"`
-	Prefork         bool          `mapstructure:"prefork"`
-	TrustedProxies  []string      `mapstructure:"trusted_proxies"`
+	// DrainGracePeriod is the time the server keeps serving traffic
+	// *after* /readyz has started reporting 503 but *before* it
+	// refuses new connections. In Kubernetes this window must be
+	// long enough for kube-proxy to observe the failed readiness
+	// probe and remove the pod from the Service endpoints (one probe
+	// interval + a few hundred ms for iptables propagation). Zero
+	// disables the drain phase and reproduces the pre-1.x behaviour.
+	DrainGracePeriod time.Duration `mapstructure:"drain_grace_period"`
+	BodyLimitBytes   int           `mapstructure:"body_limit_bytes"`
+	Prefork          bool          `mapstructure:"prefork"`
+	TrustedProxies   []string      `mapstructure:"trusted_proxies"`
 }
 
 type Database struct {
@@ -176,6 +184,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("http.write_timeout", "15s")
 	v.SetDefault("http.idle_timeout", "60s")
 	v.SetDefault("http.shutdown_timeout", "15s")
+	v.SetDefault("http.drain_grace_period", "5s")
 	v.SetDefault("http.body_limit_bytes", 1<<20)
 	v.SetDefault("http.prefork", false)
 
@@ -220,8 +229,8 @@ func allKeys() []string {
 	return []string{
 		"app.name", "app.env", "app.version",
 		"http.host", "http.port", "http.read_timeout", "http.write_timeout",
-		"http.idle_timeout", "http.shutdown_timeout", "http.body_limit_bytes",
-		"http.prefork", "http.trusted_proxies",
+		"http.idle_timeout", "http.shutdown_timeout", "http.drain_grace_period",
+		"http.body_limit_bytes", "http.prefork", "http.trusted_proxies",
 		"database.dsn", "database.min_conns", "database.max_conns",
 		"database.max_conn_lifetime", "database.max_conn_idle_time",
 		"database.connect_timeout", "database.statement_cache",

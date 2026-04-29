@@ -27,6 +27,7 @@ import (
 	"github.com/dedeez14/goforge/internal/platform"
 	"github.com/dedeez14/goforge/internal/usecase"
 	"github.com/dedeez14/goforge/pkg/i18n"
+	"github.com/dedeez14/goforge/pkg/lifecycle"
 	"github.com/dedeez14/goforge/pkg/observability"
 	"github.com/dedeez14/goforge/pkg/openapi"
 )
@@ -139,10 +140,16 @@ func Run(ctx context.Context) error {
 	sessionUC := usecase.NewSessionUseCase(sessions)
 	userUC := usecase.NewUserUseCase(users)
 
+	// Drainer flips /readyz to 503 the moment SIGTERM arrives, so
+	// Kubernetes removes us from the Service endpoints *before* we
+	// close the HTTP listener. See pkg/lifecycle for the three-phase
+	// shutdown rationale.
+	drainer := lifecycle.NewDrainer()
+
 	// Handlers.
 	handlers := server.Handlers{
 		Auth:        handler.NewAuthHandler(authUC),
-		Health:      handler.NewHealthHandler(cfg.App, router),
+		Health:      handler.NewHealthHandler(cfg.App, router, drainer),
 		Permissions: handler.NewPermissionHandler(permUC),
 		Roles:       handler.NewRoleHandler(roleUC, accessUC),
 		Menus:       handler.NewMenuHandler(menuUC, accessUC),
@@ -221,6 +228,27 @@ func Run(ctx context.Context) error {
 		log.Info().Msg("context cancelled; shutting down")
 	}
 
+	// Phase 1: announce we are leaving the load balancer. /readyz
+	// now returns 503; liveness stays 200 so we aren't killed while
+	// we finish in-flight work. Requests that land during this grace
+	// window still land on a healthy process, so they still return
+	// 2xx - kube-proxy needs time to catch up.
+	drainer.StartDraining()
+	if grace := cfg.HTTP.DrainGracePeriod; grace > 0 {
+		log.Info().Dur("grace", grace).Msg("draining; readiness reporting 503")
+		select {
+		case <-time.After(grace):
+		case <-sig:
+			// Second signal while draining → operator wants us gone
+			// now. Skip the grace window.
+			log.Warn().Msg("second signal received during drain; skipping grace window")
+		}
+	}
+
+	// Phase 2: stop the HTTP listener and wait for in-flight
+	// handlers to return. Fiber's ShutdownWithContext refuses new
+	// connections immediately and blocks until every handler is
+	// done (or the context expires).
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
 	defer cancel()
 
@@ -231,6 +259,9 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	// Phase 3: signal workers and wait for them. HTTP is closed so
+	// no new work will arrive; remaining in-flight jobs either
+	// finish or see ctx.Done and bail out.
 	cancelWorkers()
 	wg.Wait()
 
