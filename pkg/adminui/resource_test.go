@@ -23,15 +23,11 @@ func TestMount_ResourceManifest_Empty(t *testing.T) {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
 
-	var out struct {
-		Items []Resource `json:"items"`
-	}
 	body, _ := io.ReadAll(resp.Body)
-	if err := json.Unmarshal(body, &out); err != nil {
-		t.Fatalf("unmarshal: %v (body=%s)", err, body)
-	}
-	if len(out.Items) != 0 {
-		t.Fatalf("want empty items, got %v", out.Items)
+	// Wire format must be `{"items":[]}` - not `{"items":null}` -
+	// so external consumers can iterate without a nil guard.
+	if got := string(body); got != `{"items":[]}` {
+		t.Fatalf("want items=[] JSON body, got %q", got)
 	}
 }
 
