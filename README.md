@@ -333,6 +333,11 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 - [`docs/benchmark.md`](./docs/benchmark.md) — full methodology and 200k + 500k request results.
 - [`docs/security.md`](./docs/security.md) — threat model, password hashing, JWT design, header policy.
 - [`docs/rbac-menu.md`](./docs/rbac-menu.md) — RBAC + dynamic menu management: schema, endpoints, bootstrap, route-level guarding.
+- [`docs/sessions.md`](./docs/sessions.md) — self-service `/me/sessions`, refresh-token rotation, cascade revocation.
+- [`docs/api-keys.md`](./docs/api-keys.md) — scoped rotatable API keys for service-to-service traffic.
+- [`docs/read-replicas.md`](./docs/read-replicas.md) — optional PostgreSQL read-replica routing via `pkg/db.Router`.
+- [`docs/devcontainer.md`](./docs/devcontainer.md) — one-click VS Code / Codespaces workspace.
+- [`docs/sdk-typescript.md`](./docs/sdk-typescript.md) — TypeScript SDK auto-generated from `/openapi.json`.
 - [`ROADMAP.md`](./ROADMAP.md) · [`CONTRIBUTING.md`](./CONTRIBUTING.md) · [`SECURITY.md`](./SECURITY.md) · [`AGENTS.md`](./AGENTS.md)
 
 ---
