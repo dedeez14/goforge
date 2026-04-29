@@ -1,0 +1,15 @@
+; Copy to userlist.txt and replace the placeholders before starting
+; PgBouncer. Hashes are SCRAM-SHA-256; generate with:
+;
+;   psql -At -U postgres -c "SELECT rolname, rolpassword FROM pg_authid WHERE rolname='goforge'"
+;
+; or, given a plaintext password:
+;
+;   docker run --rm -e POSTGRES_PASSWORD=<pw> postgres:16-alpine \
+;     psql -h 127.0.0.1 -U postgres -At \
+;       -c "SELECT 'SCRAM-SHA-256$'||... "  # see Postgres docs
+;
+; The pattern is: "username" "SCRAM-SHA-256$iterations:salt$storedkey:serverkey"
+"goforge"        "SCRAM-SHA-256$4096:REPLACE_SALT$REPLACE_STOREDKEY:REPLACE_SERVERKEY"
+"pgbouncer_stats"  "SCRAM-SHA-256$4096:REPLACE_SALT$REPLACE_STOREDKEY:REPLACE_SERVERKEY"
+"pgbouncer_admin"  "SCRAM-SHA-256$4096:REPLACE_SALT$REPLACE_STOREDKEY:REPLACE_SERVERKEY"

@@ -76,8 +76,24 @@ func newPool(ctx context.Context, dsn string, minConns, maxConns int32, cfg conf
 	}
 	if !cfg.StatementCache {
 		// Useful behind PgBouncer (transaction mode) or when queries are
-		// almost never repeated with the same text.
+		// almost never repeated with the same text. The simple query
+		// protocol avoids the server-side prepared-statement cache
+		// that is incompatible with PgBouncer pool_mode=transaction.
 		pcfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		log.Info().
+			Str("role", role).
+			Msg("postgres: statement cache disabled (simple query protocol; PgBouncer-compatible)")
+	} else if isLikelyPgBouncer(pcfg.ConnConfig.Port) {
+		// StatementCache=true AND the DSN points at the conventional
+		// PgBouncer port. Either the config is wrong or the operator
+		// is running an unusual topology - either way they want a
+		// loud warning, not a silent 'prepared statement does not
+		// exist' error mid-request six hours from now.
+		log.Warn().
+			Str("role", role).
+			Str("host", pcfg.ConnConfig.Host).
+			Uint16("port", pcfg.ConnConfig.Port).
+			Msg("postgres: statement_cache=true but DSN looks like PgBouncer (port 6432); expect prepared-statement errors under pool_mode=transaction. Set GOFORGE_DATABASE_STATEMENT_CACHE=false.")
 	}
 
 	pcfg.HealthCheckPeriod = 30 * time.Second
@@ -100,3 +116,10 @@ func newPool(ctx context.Context, dsn string, minConns, maxConns int32, cfg conf
 
 	return pool, nil
 }
+
+// isLikelyPgBouncer reports whether the connection target looks like
+// PgBouncer based on the port. PgBouncer conventionally listens on
+// 6432; Postgres on 5432. We only flag 6432 to avoid false positives
+// against unusual topologies that happen to put Postgres on a
+// non-standard port.
+func isLikelyPgBouncer(port uint16) bool { return port == 6432 }
