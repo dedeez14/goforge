@@ -18,6 +18,7 @@ type Handlers struct {
 	Menus       *handler.MenuHandler
 	APIKeys     *handler.APIKeyHandler
 	Sessions    *handler.SessionHandler
+	Users       *handler.UserHandler
 }
 
 // AccessControl bundles the dependencies the route layer needs to
@@ -123,5 +124,14 @@ func Register(app *fiber.App, h Handlers, tokens security.TokenIssuer, ac Access
 		rbacAdmin.Put("/roles/:id/permissions", h.Roles.SetPermissions)
 
 		rbacAdmin.Put("/users/:id/roles", h.Roles.AssignUserRoles)
+
+		// Read-only user directory behind the same rbac.manage
+		// gate - the admin UI uses it to populate the "assign
+		// roles" form. Passwords and password hashes are never
+		// rendered; the handler maps to the same UserResponse
+		// the auth endpoints already emit.
+		if h.Users != nil {
+			rbacAdmin.Get("/users", h.Users.List)
+		}
 	}
 }

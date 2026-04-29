@@ -40,3 +40,14 @@ type AuthResponse struct {
 	User   UserResponse  `json:"user"`
 	Tokens TokenResponse `json:"tokens"`
 }
+
+// UserListResponse is the shape GET /api/v1/users returns for the
+// admin UI. Items is a slice of the same UserResponse emitted
+// elsewhere; total is the row count under the filter so the UI can
+// render page controls without a second round-trip.
+type UserListResponse struct {
+	Items  []UserResponse `json:"items"`
+	Total  int            `json:"total"`
+	Limit  int            `json:"limit"`
+	Offset int            `json:"offset"`
+}

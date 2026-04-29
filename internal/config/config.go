@@ -94,6 +94,13 @@ type Platform struct {
 	MetricsEnabled     bool   `mapstructure:"metrics_enabled"`
 	TenantHeader       string `mapstructure:"tenant_header"`
 	AdminToken         string `mapstructure:"admin_token"`
+	// AdminUIEnabled mounts the bundled SPA at AdminUIPath (default
+	// /panel). The UI is fully client-side; it talks to the same
+	// public /api/v1 endpoints and enforces nothing itself, so
+	// auditing which data is reachable is done by reviewing the
+	// API permission gates, not the UI.
+	AdminUIEnabled bool   `mapstructure:"admin_ui_enabled"`
+	AdminUIPath    string `mapstructure:"admin_ui_path"`
 
 	// OpenTelemetry — when OtelEndpoint is non-empty, the process
 	// installs an OTLP/HTTP exporter and wraps requests, outbox
@@ -203,6 +210,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("platform.metrics_enabled", true)
 	v.SetDefault("platform.tenant_header", "X-Tenant-ID")
 	v.SetDefault("platform.admin_token", "")
+	v.SetDefault("platform.admin_ui_enabled", true)
+	v.SetDefault("platform.admin_ui_path", "/panel")
 }
 
 // allKeys enumerates every configuration key. Used to bind env vars
@@ -225,6 +234,7 @@ func allKeys() []string {
 		"platform.outbox_enabled", "platform.outbox_batch_size", "platform.outbox_interval_ms",
 		"platform.realtime_enabled", "platform.openapi_enabled", "platform.metrics_enabled",
 		"platform.tenant_header", "platform.admin_token",
+		"platform.admin_ui_enabled", "platform.admin_ui_path",
 		"platform.otel_endpoint", "platform.otel_insecure", "platform.otel_sample_ratio",
 	}
 }

@@ -36,6 +36,20 @@ FROM users WHERE email = $1
 	qUpdateUserPasswordHash = `
 UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1
 `
+	qListUsers = `
+SELECT id, email, password_hash, name, role, created_at, updated_at
+FROM users
+WHERE ($1 = '' OR email ILIKE '%' || $1 || '%')
+ORDER BY created_at ASC, id ASC
+LIMIT $2 OFFSET $3
+`
+	qCountUsers = `
+SELECT COUNT(*) FROM users WHERE ($1 = '' OR email ILIKE '%' || $1 || '%')
+`
+	// Hard cap so a caller passing Limit=1_000_000 cannot force the
+	// server into a sort-all-rows query; matches the handler's
+	// default page ceiling.
+	userListMaxLimit = 200
 )
 
 // UserRepository is the pgx-backed implementation of user.Repository.
@@ -83,6 +97,53 @@ func (r *UserRepository) UpdatePasswordHash(ctx context.Context, id uuid.UUID, h
 		return user.ErrNotFound
 	}
 	return nil
+}
+
+// List returns the paginated user slice alongside the total count.
+// The count is produced by a second query intentionally: modern
+// Postgres optimises `SELECT COUNT(*)` well against the email
+// trigram / btree index, and the two round-trips are cheaper than
+// window-function tricks for the sizes this endpoint cares about
+// (admin UI pagination). Callers that do not need a total can
+// ignore it; the repository still computes it so the shape matches
+// domain.user.Repository.
+func (r *UserRepository) List(ctx context.Context, f user.ListFilter) ([]*user.User, int, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > userListMaxLimit {
+		limit = userListMaxLimit
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := r.pool.Query(ctx, qListUsers, f.Query, limit, offset)
+	if err != nil {
+		return nil, 0, errs.Wrap(errs.KindInternal, "user.list", "failed to list users", err)
+	}
+	defer rows.Close()
+
+	items := make([]*user.User, 0, limit)
+	for rows.Next() {
+		var (
+			u    user.User
+			role string
+		)
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &role, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, 0, errs.Wrap(errs.KindInternal, "user.scan", "failed to read user", err)
+		}
+		u.Role = user.Role(role)
+		items = append(items, &u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, errs.Wrap(errs.KindInternal, "user.list", "row iteration failed", err)
+	}
+
+	var total int
+	if err := r.pool.QueryRow(ctx, qCountUsers, f.Query).Scan(&total); err != nil {
+		return nil, 0, errs.Wrap(errs.KindInternal, "user.count", "failed to count users", err)
+	}
+	return items, total, nil
 }
 
 func (r *UserRepository) scanOne(ctx context.Context, query string, args ...any) (*user.User, error) {

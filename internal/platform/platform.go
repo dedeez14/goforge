@@ -28,6 +28,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/dedeez14/goforge/internal/config"
+	"github.com/dedeez14/goforge/pkg/adminui"
 	"github.com/dedeez14/goforge/pkg/events"
 	"github.com/dedeez14/goforge/pkg/idempotency"
 	"github.com/dedeez14/goforge/pkg/module"
@@ -78,6 +79,10 @@ func Build(app *fiber.App, pool *pgxpool.Pool, cfg config.Platform, info openapi
 	}
 	s.Realtime = realtime.NewHub(s.Bus, log.With().Str("component", "realtime").Logger())
 	s.mountAdmin(app)
+	adminui.Mount(app, adminui.Config{
+		Enabled: cfg.AdminUIEnabled,
+		Path:    cfg.AdminUIPath,
+	})
 	s.mountOpenAPI(app)
 	s.mountRealtime(app)
 	s.mountIdempotency(app, pool)
