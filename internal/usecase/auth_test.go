@@ -63,6 +63,17 @@ func (r *inMemoryUserRepo) UpdatePasswordHash(_ context.Context, id uuid.UUID, h
 	return nil
 }
 
+// List is required by the user.Repository interface but unused in
+// the auth use-case tests. A no-op is fine: the admin UC has its
+// own coverage.
+func (r *inMemoryUserRepo) List(_ context.Context, _ user.ListFilter) ([]*user.User, int, error) {
+	out := make([]*user.User, 0, len(r.byID))
+	for _, u := range r.byID {
+		out = append(out, u)
+	}
+	return out, len(out), nil
+}
+
 func newAuthFixture(t *testing.T) *AuthUseCase {
 	t.Helper()
 	repo := newInMemoryUserRepo()

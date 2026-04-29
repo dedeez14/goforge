@@ -137,6 +137,7 @@ func Run(ctx context.Context) error {
 	}
 	apiKeyUC := usecase.NewAPIKeyUseCase(apiKeys, apiKeyEnv)
 	sessionUC := usecase.NewSessionUseCase(sessions)
+	userUC := usecase.NewUserUseCase(users)
 
 	// Handlers.
 	handlers := server.Handlers{
@@ -147,6 +148,7 @@ func Run(ctx context.Context) error {
 		Menus:       handler.NewMenuHandler(menuUC, accessUC),
 		APIKeys:     handler.NewAPIKeyHandler(apiKeyUC),
 		Sessions:    handler.NewSessionHandler(sessionUC),
+		Users:       handler.NewUserHandler(userUC),
 	}
 
 	app := server.New(cfg, log, i18nBundle)
@@ -315,5 +317,13 @@ func registerOpenAPI(doc *openapi.Document) {
 		Method: "DELETE", Path: "/api/v1/me/sessions/{id}",
 		Summary: "Revoke a single session by id", Tags: []string{"sessions"},
 		ResponseCode: 204, RequiresAuth: true,
+	})
+	doc.AddOperation(openapi.Operation{
+		Method:       "GET",
+		Path:         "/api/v1/users",
+		Summary:      "Paginated user directory (rbac.manage)",
+		Tags:         []string{"users"},
+		ResponseType: dto.UserListResponse{},
+		ResponseCode: 200, RequiresAuth: true,
 	})
 }

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>goforge · admin</title>
+    <link rel="stylesheet" href="./styles.css">
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+</head>
+<body>
+    <div id="root" data-state="boot">
+        <!-- Login screen -->
+        <section id="login-screen" class="login">
+            <div class="login-card">
+                <h1>goforge</h1>
+                <p class="sub">Admin panel</p>
+                <form id="login-form">
+                    <label>Email
+                        <input type="email" name="email" required autocomplete="username">
+                    </label>
+                    <label>Password
+                        <input type="password" name="password" required autocomplete="current-password">
+                    </label>
+                    <button type="submit">Sign in</button>
+                    <p id="login-error" class="error" hidden></p>
+                </form>
+            </div>
+        </section>
+
+        <!-- Shell -->
+        <section id="shell" class="shell" hidden>
+            <aside class="sidebar">
+                <div class="brand">goforge</div>
+                <nav id="nav"></nav>
+                <div class="sidebar-foot">
+                    <span id="me-email"></span>
+                    <button id="logout">Logout</button>
+                </div>
+            </aside>
+            <main id="main" class="main">
+                <div id="view"></div>
+            </main>
+        </section>
+
+        <div id="toast" class="toast" hidden></div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+</body>
+</html>

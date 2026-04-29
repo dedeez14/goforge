@@ -38,6 +38,7 @@ goforge ships with capabilities that are rare to find pre-wired in a Go starter:
 - **Prometheus metrics** — `/admin/metrics` with method/route/status histograms (`pkg/observability`).
 - **Feature flags** — env + static sources, TTL cache, hot-reload (`pkg/flags`).
 - **`forge` CLI** — single binary for `doctor`, `scaffold`, `migrate`, `openapi`, `bench`, `module` (`cmd/forge`).
+- **Bundled admin UI** — zero-config back-office at `/panel/` with users, roles, permissions, menu tree, sessions and API key management (`pkg/adminui`).
 
 See [`docs/platform.md`](./docs/platform.md) for full details and the [`docs/modules.md`](./docs/modules.md) for writing your own.
 
@@ -338,6 +339,7 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 - [`docs/read-replicas.md`](./docs/read-replicas.md) — optional PostgreSQL read-replica routing via `pkg/db.Router`.
 - [`docs/devcontainer.md`](./docs/devcontainer.md) — one-click VS Code / Codespaces workspace.
 - [`docs/sdk-typescript.md`](./docs/sdk-typescript.md) — TypeScript SDK auto-generated from `/openapi.json`.
+- [`docs/admin-ui.md`](./docs/admin-ui.md) — bundled admin SPA at `/panel/` (users, roles, permissions, menus, sessions, API keys).
 - [`ROADMAP.md`](./ROADMAP.md) · [`CONTRIBUTING.md`](./CONTRIBUTING.md) · [`SECURITY.md`](./SECURITY.md) · [`AGENTS.md`](./AGENTS.md)
 
 ---
