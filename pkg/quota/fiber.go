@@ -36,11 +36,14 @@ func FiberMiddleware(l *Limiter, policy string) fiber.Handler {
 			// operator sees the error via the Provider's own logs.
 			return c.Next()
 		}
-		if decision.Limit > 0 {
-			c.Set("X-Ratelimit-Limit", strconv.Itoa(decision.Limit))
-			c.Set("X-Ratelimit-Remaining", strconv.Itoa(decision.Remaining))
-			c.Set("X-Ratelimit-Reset", strconv.FormatInt(int64(decision.ResetIn/time.Second), 10))
-		}
+		// Always emit X-Ratelimit-* headers, including the -1
+		// sentinel for Unlimited policies, so well-behaved clients
+		// can tell the difference between "no cap" and "cap not
+		// configured". This matches pkg/ratelimit and the behaviour
+		// documented in docs/quota.md.
+		c.Set("X-Ratelimit-Limit", strconv.Itoa(decision.Limit))
+		c.Set("X-Ratelimit-Remaining", strconv.Itoa(decision.Remaining))
+		c.Set("X-Ratelimit-Reset", strconv.FormatInt(int64(decision.ResetIn/time.Second), 10))
 		if !decision.Allowed {
 			c.Set("Retry-After", strconv.FormatInt(int64(decision.ResetIn/time.Second)+1, 10))
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{

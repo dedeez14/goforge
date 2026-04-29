@@ -114,6 +114,32 @@ func TestFiberMiddleware_FailOpenOnCacheError(t *testing.T) {
 	}
 }
 
+func TestFiberMiddleware_UnlimitedEmitsSentinelHeaders(t *testing.T) {
+	t.Parallel()
+	// Regression: Unlimited policies must still emit X-Ratelimit-*
+	// headers with the -1 sentinel (documented in docs/quota.md)
+	// so well-behaved clients can distinguish "no cap" from
+	// "missing config".
+	sp := &StaticProvider{
+		TierOf:      func(tenant.ID) string { return "internal" },
+		DefaultTier: "internal",
+		Policies: map[string]map[string]Policy{
+			"internal": {"api.requests": Unlimited},
+		},
+	}
+	app := newTestApp(New(cache.NewMemory(), "q:", sp))
+	r := httptest.NewRequest("GET", "/ping", nil)
+	r.Header.Set("X-Tenant-ID", "t1")
+	resp, _ := app.Test(r, -1)
+	defer func() { _ = resp.Body.Close() }()
+	if got := resp.Header.Get("X-Ratelimit-Limit"); got != "-1" {
+		t.Fatalf("X-Ratelimit-Limit = %q, want -1", got)
+	}
+	if got := resp.Header.Get("X-Ratelimit-Remaining"); got != "-1" {
+		t.Fatalf("X-Ratelimit-Remaining = %q, want -1", got)
+	}
+}
+
 func TestFiberMiddleware_AnonymousFallback(t *testing.T) {
 	t.Parallel()
 	sp := &StaticProvider{
