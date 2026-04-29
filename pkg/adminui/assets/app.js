@@ -851,13 +851,24 @@ async function renderAPIKeys(view) {
 async function genericRequest(method, path, body) {
     const headers = { "Accept": "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
-    const token = localStorage.getItem("goforge.admin.token");
+    const token = API.getToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(`/api/v1${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
     });
+
+    // Mirror API.request: on 401 with an existing token, the token
+    // has been revoked/expired server-side. Clear local state and
+    // bounce to login so the user is not stuck toasting errors on
+    // every action across a generic resource page.
+    if (res.status === 401 && token) {
+        API.clear();
+        location.hash = "#/login";
+        throw new Error("Session expired");
+    }
+
     if (res.status === 204) return null;
     let payload = null;
     const ct = res.headers.get("content-type") ?? "";
