@@ -103,11 +103,20 @@ func WithResources(rs ...Resource) Option {
 // endpoint returning the registered resources. The SPA fetches
 // this once on boot to extend its route table.
 func serveResourceManifest(app *fiber.App, prefix string, resources []Resource) {
+	// Normalise a nil slice to an empty one so the wire format is
+	// always `{"items":[]}` rather than `{"items":null}`. The
+	// distinction matters because this endpoint is part of the
+	// public pkg/adminui contract; any external consumer should be
+	// able to `for item := range payload.items` without a nil guard.
+	items := resources
+	if items == nil {
+		items = []Resource{}
+	}
 	// Marshal once at Mount time; the manifest is effectively
 	// immutable for the life of the process.
 	body, err := json.Marshal(struct {
 		Items []Resource `json:"items"`
-	}{Items: resources})
+	}{Items: items})
 	if err != nil {
 		// We control the inputs here, so marshal cannot fail in
 		// practice; return an empty array rather than panicking.
