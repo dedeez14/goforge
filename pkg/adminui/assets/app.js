@@ -712,35 +712,40 @@ async function renderSessions(view) {
         el("div", {}, el("h2", {}, "My sessions"), el("p", { class: "sub" }, "Devices signed into your account. Revoking a session invalidates its refresh-token chain.")),
         el("button", { class: "danger", onclick: async () => {
             if (!await confirmDialog("Logout other devices", "Every session except this one will be revoked.")) return;
-            try { await API.sessions.revokeAll(); toast("Other sessions revoked"); renderSessions(view); } catch (e) { err(e.message); }
+            try { await API.sessions.revokeAll(); toast("Other sessions revoked"); await load(); } catch (e) { err(e.message); }
         }}, "Revoke others"),
     ));
 
-    const res = await API.sessions.list();
-    const items = res.items ?? res;
     const tbody = el("tbody");
-    for (const s of items) {
-        tbody.appendChild(el("tr", {},
-            el("td", { class: "mono" }, s.id.slice(0, 8) + "…"),
-            el("td", {}, s.current ? el("span", { class: "chip" }, "this device") : ""),
-            el("td", {}, s.user_agent || "-"),
-            el("td", {}, s.ip || "-"),
-            el("td", {}, fmtDate(s.issued_at)),
-            el("td", {}, fmtDate(s.last_used_at)),
-            el("td", { class: "actions" },
-                s.current ? null : el("button", { class: "danger", onclick: async () => {
-                    if (!await confirmDialog("Revoke session", "This device will be signed out.")) return;
-                    try { await API.sessions.revoke(s.id); toast("Revoked"); renderSessions(view); } catch (e) { err(e.message); }
-                }}, "Revoke"),
-            ),
-        ));
-    }
     view.appendChild(el("table", {},
         el("thead", {}, el("tr", {},
             el("th", {}, "ID"), el("th", {}, ""), el("th", {}, "User agent"),
             el("th", {}, "IP"), el("th", {}, "Issued"), el("th", {}, "Last used"), el("th", {}, ""))),
         tbody,
     ));
+
+    async function load() {
+        clear(tbody);
+        const res = await API.sessions.list();
+        for (const s of (res.items ?? res)) {
+            tbody.appendChild(el("tr", {},
+                el("td", { class: "mono" }, s.id.slice(0, 8) + "…"),
+                el("td", {}, s.current ? el("span", { class: "chip" }, "this device") : ""),
+                el("td", {}, s.user_agent || "-"),
+                el("td", {}, s.ip || "-"),
+                el("td", {}, fmtDate(s.issued_at)),
+                el("td", {}, fmtDate(s.last_used_at)),
+                el("td", { class: "actions" },
+                    s.current ? null : el("button", { class: "danger", onclick: async () => {
+                        if (!await confirmDialog("Revoke session", "This device will be signed out.")) return;
+                        try { await API.sessions.revoke(s.id); toast("Revoked"); await load(); } catch (e) { err(e.message); }
+                    }}, "Revoke"),
+                ),
+            ));
+        }
+    }
+
+    await load();
 }
 
 async function renderAPIKeys(view) {
