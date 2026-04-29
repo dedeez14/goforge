@@ -1,0 +1,76 @@
+{
+    "name": "goforge",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "workspace",
+    "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+    "shutdownAction": "stopCompose",
+
+    "features": {
+        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+            "moby": true,
+            "dockerDashComposeVersion": "v2"
+        }
+    },
+
+    "remoteUser": "vscode",
+    "containerEnv": {
+        "GOFORGE_DATABASE_DSN": "postgres://goforge:goforge@postgres:5432/goforge?sslmode=disable",
+        "GOFORGE_APP_ENV": "development",
+        "GOFORGE_LOG_PRETTY": "true",
+        "GOFORGE_JWT_SECRET": "devcontainer-insecure-secret-only-for-local-dev-0123456789",
+        "GOFORGE_JWT_ISSUER": "goforge-dev",
+        "GOFORGE_JWT_ACCESS_TTL": "15m",
+        "GOFORGE_JWT_REFRESH_TTL": "24h",
+        "CGO_ENABLED": "0"
+    },
+
+    "forwardPorts": [
+        8080,
+        5432
+    ],
+    "portsAttributes": {
+        "8080": { "label": "goforge api", "onAutoForward": "notify" },
+        "5432": { "label": "postgres",     "onAutoForward": "silent"   }
+    },
+
+    "postCreateCommand": "bash .devcontainer/postCreate.sh",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.go",
+                "ms-azuretools.vscode-docker",
+                "mtxr.sqltools",
+                "mtxr.sqltools-driver-pg",
+                "ms-vscode.makefile-tools",
+                "editorconfig.editorconfig"
+            ],
+            "settings": {
+                "go.useLanguageServer": true,
+                "go.toolsManagement.autoUpdate": true,
+                "go.lintTool": "golangci-lint",
+                "go.lintOnSave": "package",
+                "go.formatTool": "goimports",
+                "go.testFlags": ["-race", "-count=1"],
+                "editor.formatOnSave": true,
+                "[go]": {
+                    "editor.defaultFormatter": "golang.go",
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": "explicit"
+                    }
+                },
+                "sqltools.connections": [
+                    {
+                        "name": "goforge (devcontainer)",
+                        "driver": "PostgreSQL",
+                        "server": "postgres",
+                        "port": 5432,
+                        "database": "goforge",
+                        "username": "goforge",
+                        "password": "goforge"
+                    }
+                ]
+            }
+        }
+    }
+}

@@ -104,10 +104,11 @@ var knownWeakSecrets = map[string]struct{}{
 	"secret":   {},
 	"password": {},
 	"goforge":  {},
-	"please-change-me-in-production-32-chars!":           {},
-	"change-me-to-a-very-long-random-string-of-32+chars": {}, // .env.example
-	"please-change-me-to-a-very-long-random-secret-key":  {}, // docker-compose.yml
-	"00000000000000000000000000000000":                   {},
+	"please-change-me-in-production-32-chars!":                   {},
+	"change-me-to-a-very-long-random-string-of-32+chars":         {}, // .env.example
+	"please-change-me-to-a-very-long-random-secret-key":          {}, // docker-compose.yml
+	"devcontainer-insecure-secret-only-for-local-dev-0123456789": {}, // .devcontainer/devcontainer.json
+	"00000000000000000000000000000000":                           {},
 }
 
 // isWeakSecret captures the universal failure modes that should
