@@ -342,6 +342,7 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 - [`docs/graceful-shutdown.md`](./docs/graceful-shutdown.md) — three-phase shutdown with `/readyz` drain for zero-5xx k8s rollouts.
 - [`docs/resilience.md`](./docs/resilience.md) — `pkg/resilience` circuit breaker, retry with jitter, and request hedging for flaky downstreams.
 - [`docs/quota.md`](./docs/quota.md) — `pkg/quota` per-tenant quotas (tiered policies) layered on top of `pkg/ratelimit`.
+- [`docs/partitioning.md`](./docs/partitioning.md) — `pkg/partition` monthly range partitions + rolling maintainer for high-churn tables (`audit_log`).
 - [`docs/devcontainer.md`](./docs/devcontainer.md) — one-click VS Code / Codespaces workspace.
 - [`docs/sdk-typescript.md`](./docs/sdk-typescript.md) — TypeScript SDK auto-generated from `/openapi.json`.
 - [`docs/admin-ui.md`](./docs/admin-ui.md) — bundled admin SPA at `/panel/` (users, roles, permissions, menus, sessions, API keys).
