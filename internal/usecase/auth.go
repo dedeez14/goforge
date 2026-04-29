@@ -339,12 +339,25 @@ func (uc *AuthUseCase) issuePair(ctx context.Context, userID, sessionID uuid.UUI
 // cannot blow up the sessions table with a megabyte-long header. The
 // cap is generous (512 bytes covers every mainstream browser) but
 // finite.
+//
+// The cut lands on a rune boundary so the result is always valid
+// UTF-8. Postgres's TEXT type validates encoding on write; a naive
+// byte-level slice that lands in the middle of a multi-byte sequence
+// (e.g. a CJK character in the OS name section of the UA header)
+// would make the INSERT fail and block the whole login.
 func truncateUA(s string) string {
 	const maxUA = 512
-	if len(s) > maxUA {
-		return s[:maxUA]
+	if len(s) <= maxUA {
+		return s
 	}
-	return s
+	// Walk backwards from the cap until we hit a rune leading byte.
+	// Continuation bytes match 10xxxxxx (0x80..0xBF); leading bytes
+	// either match 0xxxxxxx (ASCII) or 11xxxxxx (multi-byte head).
+	i := maxUA
+	for i > 0 && s[i]&0xC0 == 0x80 {
+		i--
+	}
+	return s[:i]
 }
 
 func normaliseEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
