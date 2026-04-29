@@ -41,6 +41,7 @@ package retention
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -216,10 +217,14 @@ func (rep Report) Err() error {
 	return rep.Errors[0]
 }
 
-// Handler adapts a Runner to the pkg/jobs Handler signature.
-// Payload is ignored — the plans are fixed at construction time.
-func (r *Runner) Handler() func(ctx context.Context, _ []byte) error {
-	return func(ctx context.Context, _ []byte) error {
+// Handler adapts a Runner to the pkg/jobs.Handler signature
+// (func(ctx, json.RawMessage) error). Payload is ignored — the plans
+// are fixed at construction time. The return type is json.RawMessage
+// (not []byte) so the result is directly assignable to
+// pkg/jobs.Handler; Go treats the two as distinct named types even
+// though json.RawMessage is defined as []byte.
+func (r *Runner) Handler() func(ctx context.Context, _ json.RawMessage) error {
+	return func(ctx context.Context, _ json.RawMessage) error {
 		return r.Run(ctx).Err()
 	}
 }

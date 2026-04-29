@@ -3,6 +3,7 @@ package retention
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/dedeez14/goforge/pkg/jobs"
 	"github.com/dedeez14/goforge/pkg/partition"
 )
 
@@ -363,11 +365,30 @@ func TestHandler_PayloadIgnored(t *testing.T) {
 		Plan{Spec: partition.Spec{Parent: "audit_log", Column: "occurred_at"}, Retain: 24 * time.Hour},
 	)
 	h := r.Handler()
-	if err := h(context.Background(), []byte(`{"ignored":true}`)); err != nil {
+	if err := h(context.Background(), json.RawMessage(`{"ignored":true}`)); err != nil {
 		t.Fatalf("handler: %v", err)
 	}
 	if len(arc.archived) != 1 {
 		t.Fatalf("handler did not run plan: archived=%v", arc.archived)
+	}
+}
+
+// TestHandler_AssignableToJobsHandler is a compile-time check that
+// Runner.Handler()'s return type is directly assignable to
+// pkg/jobs.Handler. In Go, json.RawMessage and []byte are distinct
+// named types; this test would fail to build if the signatures
+// drift apart again.
+func TestHandler_AssignableToJobsHandler(t *testing.T) {
+	t.Parallel()
+	mgr := &fakePartitionOps{parts: mkParts(t, "audit_log", "2020-01")}
+	arc := &fakeArchiver{}
+	r, _ := newTestRunner(t, mgr, arc,
+		time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC),
+		Plan{Spec: partition.Spec{Parent: "audit_log", Column: "occurred_at"}, Retain: 24 * time.Hour},
+	)
+	var h jobs.Handler = r.Handler()
+	if h == nil {
+		t.Fatal("Handler should not be nil")
 	}
 }
 
