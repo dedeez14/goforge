@@ -1,0 +1,58 @@
+# Devcontainer/Codespaces compose stack.
+#
+# The workspace container is a Go toolchain image that mounts the
+# repo as a volume; Postgres runs as a sidecar with a named volume so
+# the database survives "Rebuild Container".
+#
+# This compose file is intentionally separate from deploy/docker/
+# docker-compose.yml: the deploy stack builds the production image
+# and runs migrate + api, which is the wrong shape for an IDE -
+# here we just want a dev shell wired to a database.
+
+name: goforge-dev
+
+services:
+  workspace:
+    image: mcr.microsoft.com/devcontainers/go:1-1.23-bookworm
+    init: true
+    # Keep the container alive so VS Code can exec into it; the
+    # actual "make run" is invoked by the developer or by a task.
+    command: sleep infinity
+    volumes:
+      - ..:/workspaces/goforge:cached
+      # Reuse the host's go build cache so first-run builds are
+      # fast across container rebuilds.
+      - go-build-cache:/home/vscode/.cache/go-build
+      - go-mod-cache:/go/pkg/mod
+    working_dir: /workspaces/goforge
+    # docker-compose creates a default network on which services
+    # resolve each other by name, so the workspace reaches postgres
+    # at "postgres:5432" without any extra config.
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: goforge
+      POSTGRES_PASSWORD: goforge
+      POSTGRES_DB: goforge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Keep the port published so SQLTools and `psql` from the host
+    # can both reach it. Codespaces auto-forwards 5432 when this is
+    # set.
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goforge -d goforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  go-build-cache:
+  go-mod-cache:

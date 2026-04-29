@@ -85,6 +85,11 @@ Stop with `make down`. Postgres data persists in the `pgdata` Docker volume.
 
 > Without Docker: install Go 1.23+, a running Postgres, and [`migrate`](https://github.com/golang-migrate/migrate). Then `make migrate-up && make run`.
 
+> **One-click dev setup** — if you have VS Code + Docker or a GitHub
+> Codespace, skip the `.env` dance: **Dev Containers: Reopen in
+> Container** (or **Create codespace on main**) builds a pre-wired
+> Go + Postgres workspace. See [`docs/devcontainer.md`](docs/devcontainer.md).
+
 ---
 
 ## Architecture
