@@ -40,8 +40,9 @@ type Policy struct {
 	Window time.Duration
 
 	// Max is the budget per window. Values <= 0 mean "no limit" and
-	// Allow returns Allowed=true with Remaining=math.MaxInt32-ish
-	// sentinel so caller headers are still populated.
+	// Allow returns Allowed=true with Limit=-1 and Remaining=-1
+	// sentinels so caller headers are still populated and clients
+	// can distinguish "no cap" from "cap not configured".
 	Max int
 }
 
