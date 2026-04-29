@@ -54,7 +54,8 @@ type Router struct {
 // The caller retains ownership of both pools. [Router.Close] closes
 // whichever pools were passed in; if the caller has already taken
 // responsibility for closing them (e.g. they're reused elsewhere),
-// use [Router.CloseReplica] / the pool's own Close directly.
+// reach for [Router.Replica] / [Router.Primary] and call Close on
+// the underlying *pgxpool.Pool directly instead.
 func NewRouter(primary, replica *pgxpool.Pool) *Router {
 	return &Router{primary: primary, replica: replica}
 }
