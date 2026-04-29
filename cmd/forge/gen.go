@@ -29,6 +29,7 @@ func cmdGen(_ context.Context, args []string) error {
 func runGenResource(args []string) error {
 	fs := flag.NewFlagSet("gen resource", flag.ContinueOnError)
 	name := fs.String("name", "", "resource name in PascalCase, e.g. Order")
+	withAdmin := fs.Bool("with-admin", false, "also emit an adminui.Resource companion so the resource appears in the bundled admin SPA")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -43,7 +44,9 @@ func runGenResource(args []string) error {
 	if err != nil {
 		return err
 	}
-	files, err := gen.Generate(root, *name, mod)
+	files, err := gen.GenerateWithOptions(root, *name, mod, gen.Options{
+		WithAdmin: *withAdmin,
+	})
 	if err != nil {
 		return err
 	}
@@ -57,6 +60,15 @@ func runGenResource(args []string) error {
 	fmt.Printf("  2. add the routes under api.Group(\"/%ss\") in internal/infrastructure/server/router.go\n", strings.ToLower(*name))
 	fmt.Println("  3. forge migrate up")
 	fmt.Println("  4. go test -race ./...")
+	if *withAdmin {
+		fmt.Println("")
+		fmt.Println("admin UI integration:")
+		fmt.Printf("  5. In internal/platform/platform.go, extend the adminui.Mount call:\n")
+		fmt.Printf("       adminui.Mount(app, adminui.Config{...},\n")
+		fmt.Printf("           adminui.WithResources(%sAdminResource()),\n", *name)
+		fmt.Printf("       )\n")
+		fmt.Printf("  6. Reload /panel/ - the %s tab is now rendered.\n", strings.ToLower(*name)+"s")
+	}
 	return nil
 }
 

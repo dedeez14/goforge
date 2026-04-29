@@ -34,6 +34,9 @@ import (
 //go:embed templates/*.tmpl
 var tmplFS embed.FS
 
+//go:embed templates_admin/*.tmpl
+var tmplAdminFS embed.FS
+
 // Resource is the data we feed templates. All fields are computed
 // from the resource's name; callers only need to supply Name.
 type Resource struct {
@@ -44,9 +47,27 @@ type Resource struct {
 	MigrationID string // 0007 etc.
 }
 
+// Options tunes Generate's behaviour. Zero-value is "baseline
+// templates only", matching the pre-option callsite.
+type Options struct {
+	// WithAdmin, when true, additionally emits the admin UI
+	// companion file (internal/platform/admin_<lc>.go) which
+	// declares the adminui.Resource for this aggregate. The file
+	// is placed in package platform so Build() in that package
+	// can call it directly without introducing a reverse import
+	// cycle (internal/app already imports internal/platform).
+	WithAdmin bool
+}
+
 // Generate writes every template under repoRoot. files reports the
 // list of created files so the caller can print them.
 func Generate(repoRoot, name, modulePath string) (files []string, err error) {
+	return GenerateWithOptions(repoRoot, name, modulePath, Options{})
+}
+
+// GenerateWithOptions is the option-aware form of Generate. Prefer
+// this in new code; Generate is kept for backwards compatibility.
+func GenerateWithOptions(repoRoot, name, modulePath string, opts Options) (files []string, err error) {
 	if name == "" {
 		return nil, errors.New("gen: --name is required")
 	}
@@ -62,15 +83,41 @@ func Generate(repoRoot, name, modulePath string) (files []string, err error) {
 	}
 	r.MigrationID = nextMigration(repoRoot)
 
-	tmpls, err := fs.ReadDir(tmplFS, "templates")
+	sources := []struct {
+		fs  embed.FS
+		dir string
+	}{
+		{tmplFS, "templates"},
+	}
+	if opts.WithAdmin {
+		sources = append(sources, struct {
+			fs  embed.FS
+			dir string
+		}{tmplAdminFS, "templates_admin"})
+	}
+
+	for _, src := range sources {
+		batch, err := renderDir(repoRoot, src.fs, src.dir, r)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, batch...)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func renderDir(repoRoot string, sfs embed.FS, dir string, r Resource) ([]string, error) {
+	tmpls, err := fs.ReadDir(sfs, dir)
 	if err != nil {
 		return nil, err
 	}
+	var produced []string
 	for _, e := range tmpls {
 		if e.IsDir() {
 			continue
 		}
-		raw, err := tmplFS.ReadFile("templates/" + e.Name())
+		raw, err := sfs.ReadFile(dir + "/" + e.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -92,18 +139,18 @@ func Generate(repoRoot, name, modulePath string) (files []string, err error) {
 		// than running it through text/template) because shell
 		// quoting and Go's template syntax disagree on what the
 		// braces mean.
-		out := strings.TrimSuffix(e.Name(), ".tmpl")
-		out = strings.ReplaceAll(out, "__", string(os.PathSeparator))
-		out = strings.ReplaceAll(out, "{{LC}}", r.Lower)
-		out = strings.ReplaceAll(out, "{{PLURAL}}", r.Plural)
-		out = strings.ReplaceAll(out, "{{MIG}}", r.MigrationID)
+		rel := strings.TrimSuffix(e.Name(), ".tmpl")
+		rel = strings.ReplaceAll(rel, "__", string(os.PathSeparator))
+		rel = strings.ReplaceAll(rel, "{{LC}}", r.Lower)
+		rel = strings.ReplaceAll(rel, "{{PLURAL}}", r.Plural)
+		rel = strings.ReplaceAll(rel, "{{MIG}}", r.MigrationID)
 
-		full := filepath.Join(repoRoot, out)
+		full := filepath.Join(repoRoot, rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			return nil, err
 		}
 		if _, err := os.Stat(full); err == nil {
-			return nil, fmt.Errorf("refusing to overwrite %s", out)
+			return nil, fmt.Errorf("refusing to overwrite %s", rel)
 		}
 		var buf bytes.Buffer
 		if err := t.Execute(&buf, r); err != nil {
@@ -112,10 +159,9 @@ func Generate(repoRoot, name, modulePath string) (files []string, err error) {
 		if err := os.WriteFile(full, buf.Bytes(), 0o644); err != nil {
 			return nil, err
 		}
-		files = append(files, out)
+		produced = append(produced, rel)
 	}
-	sort.Strings(files)
-	return files, nil
+	return produced, nil
 }
 
 func startsUpper(s string) bool {

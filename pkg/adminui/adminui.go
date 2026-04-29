@@ -56,7 +56,7 @@ type Config struct {
 //   - ANY <prefix>/*         -> filesystem middleware over the
 //     embedded FS, with index.html as the SPA fallback so hash
 //     routes (#/users, #/roles …) resolve to the bootstrap page.
-func Mount(app *fiber.App, cfg Config) {
+func Mount(app *fiber.App, cfg Config, opts ...Option) {
 	if !cfg.Enabled {
 		return
 	}
@@ -66,6 +66,11 @@ func Mount(app *fiber.App, cfg Config) {
 	}
 	prefix = "/" + strings.Trim(prefix, "/")
 	redirectTarget := path.Clean(prefix+"/") + "/"
+
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 
 	// Redirect `/panel` (no trailing slash) to `/panel/`. Fiber runs
 	// routes in non-strict mode by default so `/panel` and `/panel/`
@@ -78,6 +83,12 @@ func Mount(app *fiber.App, cfg Config) {
 		}
 		return c.Redirect(redirectTarget, fiber.StatusPermanentRedirect)
 	})
+
+	// Resource manifest is registered before the filesystem
+	// middleware so it wins on exact path match. Always register
+	// even when the list is empty so the SPA does not see a 404
+	// (which would be indistinguishable from an older build).
+	serveResourceManifest(app, prefix, o.resources)
 
 	app.Use(prefix+"/", filesystem.New(filesystem.Config{
 		Root:         http.FS(files),

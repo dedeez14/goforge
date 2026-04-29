@@ -1,0 +1,39 @@
+package platform
+
+import (
+	"{{.Module}}/pkg/adminui"
+)
+
+// {{.Name}}AdminResource returns the adminui.Resource definition for
+// the {{.Plural}} resource, rendered automatically by the bundled
+// admin SPA under /panel/#/{{.Plural}}.
+//
+// Wire it from Build() in this same package by extending the
+// existing adminui.Mount call:
+//
+//	adminui.Mount(app, adminui.Config{...},
+//	    adminui.WithResources({{.Name}}AdminResource()),
+//	)
+//
+// The function lives in package platform deliberately: internal/app
+// already imports internal/platform, so keeping the companion here
+// avoids a reverse import cycle and lets Build() call it with no
+// extra imports.
+//
+// Field names here must match the JSON keys on your DTOs. Tweak
+// list / form visibility, field types and required flags as your
+// schema evolves.
+func {{.Name}}AdminResource() adminui.Resource {
+	return adminui.Resource{
+		Name:       "{{.Plural}}",
+		Label:      "{{.Name | title}}s",
+		APIPath:    "{{.Plural}}",
+		Permission: "{{.Lower}}.read",
+		Searchable: true,
+		Fields: []adminui.Field{
+			{Name: "name", Label: "Name", Type: "text", Required: true},
+			{Name: "id", Label: "ID", Type: "text", FormHidden: true},
+			{Name: "created_at", Label: "Created", Type: "text", FormHidden: true},
+		},
+	}
+}

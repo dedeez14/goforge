@@ -340,6 +340,7 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 - [`docs/devcontainer.md`](./docs/devcontainer.md) — one-click VS Code / Codespaces workspace.
 - [`docs/sdk-typescript.md`](./docs/sdk-typescript.md) — TypeScript SDK auto-generated from `/openapi.json`.
 - [`docs/admin-ui.md`](./docs/admin-ui.md) — bundled admin SPA at `/panel/` (users, roles, permissions, menus, sessions, API keys).
+- [`docs/forge-gen-with-admin.md`](./docs/forge-gen-with-admin.md) — `forge gen resource --with-admin` emits a companion so new resources show up in the admin UI automatically.
 - [`ROADMAP.md`](./ROADMAP.md) · [`CONTRIBUTING.md`](./CONTRIBUTING.md) · [`SECURITY.md`](./SECURITY.md) · [`AGENTS.md`](./AGENTS.md)
 
 ---
