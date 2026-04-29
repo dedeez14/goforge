@@ -1,0 +1,34 @@
+package app
+
+import (
+	"{{.Module}}/pkg/adminui"
+)
+
+// {{.Name}}AdminResource returns the adminui.Resource definition for
+// the {{.Plural}} resource, rendered automatically by the bundled
+// admin SPA under /panel/#/{{.Plural}}.
+//
+// Wire it in internal/platform/platform.go where adminui.Mount is
+// called:
+//
+//	adminui.Mount(app, adminui.Config{...},
+//	    adminui.WithResources(app.{{.Name}}AdminResource()),
+//	)
+//
+// Field names here must match the JSON keys on your DTOs. Tweak
+// the list / form visibility, field types and required flags as
+// your schema evolves.
+func {{.Name}}AdminResource() adminui.Resource {
+	return adminui.Resource{
+		Name:       "{{.Plural}}",
+		Label:      "{{.Name | title}}s",
+		APIPath:    "{{.Plural}}",
+		Permission: "{{.Lower}}.read",
+		Searchable: true,
+		Fields: []adminui.Field{
+			{Name: "name", Label: "Name", Type: "text", Required: true},
+			{Name: "id", Label: "ID", Type: "text", ListHidden: false, FormHidden: true},
+			{Name: "created_at", Label: "Created", Type: "text", FormHidden: true},
+		},
+	}
+}

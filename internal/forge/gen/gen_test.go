@@ -61,6 +61,65 @@ func TestGenerate_RefusesToOverwrite(t *testing.T) {
 	}
 }
 
+func TestGenerateWithOptions_WithAdmin(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "migrations"), 0o755)
+
+	files, err := GenerateWithOptions(root, "Invoice", "github.com/example/app", Options{WithAdmin: true})
+	if err != nil {
+		t.Fatalf("GenerateWithOptions: %v", err)
+	}
+
+	want := "internal/app/admin_invoice.go"
+	full := filepath.Join(root, want)
+	if _, err := os.Stat(full); err != nil {
+		t.Fatalf("expected admin companion %s: %v", want, err)
+	}
+
+	body, err := os.ReadFile(full)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	b := string(body)
+	for _, must := range []string{
+		"package app",
+		"InvoiceAdminResource()",
+		"adminui.Resource",
+		"Name:       \"invoices\"",
+		"APIPath:    \"invoices\"",
+	} {
+		if !strings.Contains(b, must) {
+			t.Errorf("admin companion missing %q:\n%s", must, b)
+		}
+	}
+
+	// Ensure the admin file is in the returned list too.
+	var listed bool
+	for _, f := range files {
+		if f == want {
+			listed = true
+		}
+	}
+	if !listed {
+		t.Errorf("admin companion not in returned file list: %v", files)
+	}
+}
+
+func TestGenerate_NoAdminByDefault(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(root, "migrations"), 0o755)
+
+	if _, err := Generate(root, "Thing", "github.com/example/app"); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	// No admin companion should be emitted unless explicitly asked for.
+	if _, err := os.Stat(filepath.Join(root, "internal/app/admin_thing.go")); err == nil {
+		t.Fatalf("admin companion must not be emitted by default")
+	}
+}
+
 func TestGenerate_PicksNextMigrationID(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

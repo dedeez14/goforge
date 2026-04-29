@@ -257,6 +257,35 @@ const routes = [
     { path: "docs",      label: "OpenAPI",   render: renderDocs },
 ];
 
+// Generic resources declared via adminui.WithResources(...) on the
+// server side. Fetched once from /panel/_resources.json at boot so
+// `forge gen --with-admin` can add CRUD pages without touching the
+// SPA source. Each entry renders via renderGenericResource().
+async function loadGenericResources() {
+    try {
+        // Compute the manifest URL relative to the current location
+        // so the SPA works behind custom Path settings (e.g.
+        // /admin/ instead of /panel/).
+        const base = location.pathname.replace(/\/[^/]*$/, "");
+        const res = await fetch(`${base}/_resources.json`, { headers: { "Accept": "application/json" } });
+        if (!res.ok) return;
+        const payload = await res.json();
+        for (const r of (payload.items || [])) {
+            // Skip entries that would collide with a built-in route
+            // to keep the core navigation deterministic.
+            if (routes.some((existing) => existing.path === r.name)) continue;
+            routes.push({
+                path: r.name,
+                label: r.label || r.name,
+                render: (view) => renderGenericResource(view, r),
+                generic: true,
+            });
+        }
+    } catch (e) {
+        // Manifest is optional - a 404 on older binaries is fine.
+    }
+}
+
 function currentRoute() {
     const hash = location.hash.replace(/^#\//, "").split("?")[0] || "dashboard";
     return routes.find((r) => r.path === hash) || routes[0];
@@ -275,6 +304,7 @@ async function mount() {
     const me = API.getMe() || await API.me();
     document.getElementById("me-email").textContent = me.email;
 
+    await loadGenericResources();
     renderNav();
     await renderCurrent();
     window.addEventListener("hashchange", renderCurrent);
@@ -805,6 +835,153 @@ async function renderAPIKeys(view) {
             );
             document.body.appendChild(backdrop);
         } catch (e) { err(e.message); }
+    }
+
+    await load();
+}
+
+// ---------- Generic resource pages ----------
+//
+// renderGenericResource is driven by a Resource manifest entry
+// fetched from /panel/_resources.json. It renders a list view
+// (search + pagination + row actions) and create/edit dialogs
+// built from the entry's Fields array, calling /api/v1/<path>
+// under the covers. Real authorisation is still server-side.
+
+async function genericRequest(method, path, body) {
+    const headers = { "Accept": "application/json" };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const token = localStorage.getItem("goforge.admin.token");
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`/api/v1${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (res.status === 204) return null;
+    let payload = null;
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) payload = await res.json();
+    if (!res.ok) {
+        const code = payload?.error?.code ?? `http.${res.status}`;
+        const msg = payload?.error?.message ?? res.statusText;
+        const e = new Error(`${code}: ${msg}`);
+        e.status = res.status;
+        throw e;
+    }
+    if (payload && typeof payload === "object" && "data" in payload) return payload.data;
+    return payload;
+}
+
+function fieldLabel(f) {
+    return f.label || f.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formFieldsFor(resource, initial) {
+    return (resource.fields || [])
+        .filter((f) => !f.form_hidden)
+        .map((f) => ({
+            name: f.name,
+            label: fieldLabel(f),
+            type: f.type === "email" ? "email" :
+                  f.type === "number" ? "number" :
+                  f.type === "date" ? "date" :
+                  f.type === "checkbox" ? "checkbox" : "text",
+            required: !!f.required,
+            default: initial?.[f.name] ?? "",
+        }));
+}
+
+async function renderGenericResource(view, resource) {
+    const apiPath = resource.api_path || resource.name;
+    const listFields = (resource.fields || []).filter((f) => !f.list_hidden);
+    const state = { q: "", offset: 0, limit: 50, total: 0 };
+
+    view.appendChild(el("div", { class: "view-header" },
+        el("div", {},
+            el("h2", {}, resource.label || resource.name),
+            el("p", { class: "sub" }, `Resource registered via adminui.WithResources - backed by /api/v1/${apiPath}.`),
+        ),
+        el("button", { onclick: () => createItem() }, "New"),
+    ));
+
+    const toolbar = el("div", { class: "toolbar" });
+    if (resource.searchable) {
+        const input = el("input", { type: "search", placeholder: "Search…", value: state.q });
+        input.oninput = () => { state.q = input.value; state.offset = 0; load(); };
+        toolbar.appendChild(input);
+    }
+    view.appendChild(toolbar);
+
+    const tbody = el("tbody");
+    const pager = el("div", { class: "pager" });
+    const prevBtn = el("button", { class: "secondary" }, "Prev");
+    const nextBtn = el("button", { class: "secondary" }, "Next");
+    const pageLabel = el("span", {}, "");
+    prevBtn.onclick = () => { state.offset = Math.max(0, state.offset - state.limit); load(); };
+    nextBtn.onclick = () => { state.offset += state.limit; load(); };
+    pager.append(prevBtn, pageLabel, nextBtn);
+
+    view.appendChild(el("table", {},
+        el("thead", {}, el("tr", {},
+            ...listFields.map((f) => el("th", {}, fieldLabel(f))),
+            el("th", {}, ""),
+        )),
+        tbody,
+    ));
+    view.appendChild(pager);
+
+    async function load() {
+        clear(tbody);
+        const qs = new URLSearchParams();
+        qs.set("limit", state.limit);
+        qs.set("offset", state.offset);
+        if (state.q) qs.set("q", state.q);
+        let rows = [];
+        try {
+            const res = await genericRequest("GET", `/${apiPath}?${qs.toString()}`);
+            if (Array.isArray(res)) { rows = res; state.total = res.length + state.offset; }
+            else { rows = res.items || []; state.total = res.total ?? rows.length + state.offset; }
+        } catch (e) { err(e.message); return; }
+
+        for (const row of rows) {
+            tbody.appendChild(el("tr", {},
+                ...listFields.map((f) => el("td", {}, formatCell(row[f.name]))),
+                el("td", { class: "actions" },
+                    el("button", { class: "secondary", onclick: () => editItem(row) }, "Edit"),
+                    el("button", { class: "danger", onclick: () => deleteItem(row) }, "Delete"),
+                ),
+            ));
+        }
+        pageLabel.textContent = `${rows.length ? state.offset + 1 : 0}–${state.offset + rows.length}${state.total ? ` of ${state.total}` : ""}`;
+        prevBtn.disabled = state.offset === 0;
+        nextBtn.disabled = rows.length < state.limit;
+    }
+
+    function formatCell(v) {
+        if (v == null) return "-";
+        if (typeof v === "boolean") return v ? "yes" : "no";
+        if (typeof v === "object") return JSON.stringify(v);
+        const s = String(v);
+        return s.length > 80 ? s.slice(0, 77) + "…" : s;
+    }
+
+    async function createItem() {
+        const data = await formDialog(`New ${resource.label || resource.name}`, formFieldsFor(resource, null));
+        if (!data) return;
+        try { await genericRequest("POST", `/${apiPath}`, data); toast("Created"); load(); } catch (e) { err(e.message); }
+    }
+
+    async function editItem(row) {
+        const data = await formDialog(`Edit ${resource.label || resource.name}`, formFieldsFor(resource, row), row);
+        if (!data) return;
+        const id = row.id;
+        try { await genericRequest("PUT", `/${apiPath}/${id}`, data); toast("Saved"); load(); } catch (e) { err(e.message); }
+    }
+
+    async function deleteItem(row) {
+        if (!await confirmDialog("Delete", `Delete this ${resource.label || resource.name}?`)) return;
+        try { await genericRequest("DELETE", `/${apiPath}/${row.id}`); toast("Deleted"); load(); } catch (e) { err(e.message); }
     }
 
     await load();
