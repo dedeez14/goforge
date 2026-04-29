@@ -13,17 +13,27 @@ import (
 )
 
 // fakeExec is a minimal Executor substitute for unit tests. It
-// records every Exec'd statement and serves pre-programmed rows for
-// Query. We deliberately do NOT parse SQL — we assert on substrings
-// so the tests remain readable while exercising real formatting.
+// records every Exec'd statement, serves pre-programmed rows for
+// Query, and mimics real PostgreSQL's DDL behaviour — in particular,
+// CREATE TABLE IF NOT EXISTS always returns the CommandTag
+// "CREATE TABLE" regardless of whether the table existed already.
+// Detection of "did I create it?" is the caller's responsibility,
+// and we deliberately DO NOT give tests a way to fake the old
+// behaviour, because the real driver cannot do it either.
 type fakeExec struct {
 	execs []string
-	rows  [][]string
+
+	// initialRows is returned from the first Query call (the
+	// pre-DDL partition-name snapshot EnsureMonths takes). After
+	// the first call, any subsequent Query gets `rows` (the user's
+	// explicit programming for Partitions / DropBefore tests).
+	// If initialRows is nil, `rows` is served on every call.
+	initialRows [][]string
+	rows        [][]string
+	queryCalls  int
+
 	// execErr, if non-nil, is returned from every Exec call.
 	execErr error
-	// createdMap maps statement->tag. Default "CREATE TABLE" so
-	// EnsureMonths sees every call as a fresh CREATE.
-	createdMap map[string]string
 }
 
 func (f *fakeExec) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
@@ -31,13 +41,14 @@ func (f *fakeExec) Exec(_ context.Context, sql string, _ ...any) (pgconn.Command
 	if f.execErr != nil {
 		return pgconn.CommandTag{}, f.execErr
 	}
-	if tag, ok := f.createdMap[sql]; ok {
-		return pgconn.NewCommandTag(tag), nil
-	}
 	return pgconn.NewCommandTag("CREATE TABLE"), nil
 }
 
 func (f *fakeExec) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	f.queryCalls++
+	if f.initialRows != nil && f.queryCalls == 1 {
+		return &fakeRows{data: f.initialRows}, nil
+	}
 	return &fakeRows{data: f.rows}, nil
 }
 
@@ -94,6 +105,7 @@ func TestEnsureMonths_ValidatesSpec(t *testing.T) {
 
 func TestEnsureMonths_EmitsCorrectDDL(t *testing.T) {
 	t.Parallel()
+	// Empty snapshot — every partition in the window is newly created.
 	fe := &fakeExec{}
 	m := NewManager(fe)
 
@@ -122,33 +134,85 @@ func TestEnsureMonths_EmitsCorrectDDL(t *testing.T) {
 	}
 }
 
-func TestEnsureMonths_Idempotent(t *testing.T) {
+func TestEnsureMonths_Idempotent_ViaPreDDLSnapshot(t *testing.T) {
 	t.Parallel()
-	// Simulate "already exists" by returning CREATE TABLE tag for
-	// first run, "0" CommandTag for second run.
-	fe := &fakeExec{createdMap: map[string]string{}}
-	m := NewManager(fe)
+	// Real PostgreSQL returns CommandTag "CREATE TABLE" for
+	// CREATE TABLE IF NOT EXISTS regardless of whether the table
+	// existed. The Manager must therefore detect novelty via the
+	// pre-DDL pg_tables snapshot, not the CommandTag. This test
+	// pins that behaviour: first run sees no existing partitions,
+	// second run sees them, so the `created` slice is empty on
+	// the second call even though the Exec tags are identical.
+	now := time.Now().UTC()
+	current := partitionName("audit_log", firstOfMonth(now))
+	defaultName := "audit_log_default"
 
-	created1, err := m.EnsureMonths(context.Background(),
+	// First run: pre-DDL snapshot is empty — no partitions exist yet.
+	fe1 := &fakeExec{initialRows: nil, rows: nil}
+	m1 := NewManager(fe1)
+	created1, err := m1.EnsureMonths(context.Background(),
 		Spec{Parent: "audit_log", Column: "occurred_at"}, 0, 0)
 	if err != nil {
 		t.Fatalf("first EnsureMonths: %v", err)
 	}
-	if len(created1) != 2 { // current month + default
-		t.Fatalf("first run created %d, want 2", len(created1))
+	if got, want := len(created1), 2; got != want {
+		t.Fatalf("first run created %d names, want %d: %v", got, want, created1)
 	}
 
-	// Second run: tell fakeExec to report "0" for every SQL.
-	for _, s := range fe.execs {
-		fe.createdMap[s] = ""
-	}
-	created2, err := m.EnsureMonths(context.Background(),
+	// Second run: pre-DDL snapshot already contains both names —
+	// Exec still returns "CREATE TABLE" (as real PG does) but the
+	// diff sees zero new names.
+	fe2 := &fakeExec{initialRows: [][]string{
+		{current},
+		{defaultName},
+	}}
+	m2 := NewManager(fe2)
+	created2, err := m2.EnsureMonths(context.Background(),
 		Spec{Parent: "audit_log", Column: "occurred_at"}, 0, 0)
 	if err != nil {
 		t.Fatalf("second EnsureMonths: %v", err)
 	}
-	if len(created2) != 0 {
-		t.Fatalf("second run created %d, want 0 (idempotent)", len(created2))
+	if got, want := len(created2), 0; got != want {
+		t.Fatalf("second run created %d names, want %d (idempotent): %v", got, want, created2)
+	}
+}
+
+func TestEnsureMonths_MixedPartialReturnsOnlyMissing(t *testing.T) {
+	t.Parallel()
+	// Regression: if the snapshot already has SOME of the target
+	// partitions but not all, EnsureMonths must report only the
+	// genuinely-missing ones in `created`. This mirrors the real
+	// operational pattern where the maintainer fills in months as
+	// they age into the Past window.
+	now := time.Now().UTC()
+	base := firstOfMonth(now)
+	current := partitionName("audit_log", base)
+	next := partitionName("audit_log", base.AddDate(0, 1, 0))
+
+	// Current month already exists; next month + default don't.
+	fe := &fakeExec{initialRows: [][]string{{current}}}
+	m := NewManager(fe)
+
+	created, err := m.EnsureMonths(context.Background(),
+		Spec{Parent: "audit_log", Column: "occurred_at"}, 0, 1)
+	if err != nil {
+		t.Fatalf("EnsureMonths: %v", err)
+	}
+	if got, want := len(created), 2; got != want {
+		t.Fatalf("created %d, want %d: %v", got, want, created)
+	}
+	seen := map[string]bool{}
+	for _, n := range created {
+		seen[n] = true
+	}
+	if !seen[next] {
+		t.Errorf("expected %q in created; got %v", next, created)
+	}
+	if !seen["audit_log_default"] {
+		t.Errorf("expected audit_log_default in created; got %v", created)
+	}
+	if seen[current] {
+		t.Errorf("did NOT expect %q in created (already existed); got %v", current, created)
 	}
 }
 

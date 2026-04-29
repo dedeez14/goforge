@@ -120,6 +120,18 @@ func (m *Manager) EnsureMonths(ctx context.Context, s Spec, past, future int) ([
 		return nil, fmt.Errorf("partition: past and future must be >= 0, got past=%d future=%d", past, future)
 	}
 
+	// Snapshot the set of existing partition names before we start
+	// issuing DDL. We diff against this at the end to decide which
+	// partitions are genuinely new — PostgreSQL's CommandTag for
+	// `CREATE TABLE IF NOT EXISTS` is `CREATE TABLE` whether or not
+	// the table was actually created, so we cannot use the tag as a
+	// signal. Any partition name that appears in the post-state but
+	// not in this snapshot is counted as "created this call".
+	existing, err := m.partitionNames(ctx, s.Parent)
+	if err != nil {
+		return nil, err
+	}
+
 	base := firstOfMonth(time.Now().UTC())
 	created := make([]string, 0, past+future+1)
 
@@ -135,13 +147,10 @@ func (m *Manager) EnsureMonths(ctx context.Context, s Spec, past, future int) ([
 			pgTimestamp(from),
 			pgTimestamp(to),
 		)
-		tag, err := m.db.Exec(ctx, sql)
-		if err != nil {
+		if _, err := m.db.Exec(ctx, sql); err != nil {
 			return created, fmt.Errorf("partition: create %s: %w", name, err)
 		}
-		// RowsAffected is 0 for no-op (already exists), 1 for CREATE.
-		// pgx returns CommandTag; its String() starts with "CREATE TABLE".
-		if strings.HasPrefix(tag.String(), "CREATE TABLE") {
+		if _, seen := existing[name]; !seen {
 			created = append(created, name)
 		}
 	}
@@ -154,14 +163,43 @@ func (m *Manager) EnsureMonths(ctx context.Context, s Spec, past, future int) ([
 		pgIdent(defaultName),
 		pgIdent(s.Parent),
 	)
-	tag, err := m.db.Exec(ctx, defaultSQL)
-	if err != nil {
+	if _, err := m.db.Exec(ctx, defaultSQL); err != nil {
 		return created, fmt.Errorf("partition: create default %s: %w", defaultName, err)
 	}
-	if strings.HasPrefix(tag.String(), "CREATE TABLE") {
+	if _, seen := existing[defaultName]; !seen {
 		created = append(created, defaultName)
 	}
 	return created, nil
+}
+
+// partitionNames loads the current set of child table names for
+// parent from pg_tables. It is the pre-DDL snapshot EnsureMonths
+// diffs against to report genuinely-created partitions.
+func (m *Manager) partitionNames(ctx context.Context, parent string) (map[string]struct{}, error) {
+	rows, err := m.db.Query(ctx,
+		`SELECT tablename
+		   FROM pg_tables
+		  WHERE schemaname = current_schema()
+		    AND tablename LIKE $1`,
+		parent+"_%",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("partition: list %s: %w", parent, err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]struct{}, 16)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("partition: scan: %w", err)
+		}
+		out[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("partition: iterate: %w", err)
+	}
+	return out, nil
 }
 
 // Partitions returns the child partitions belonging to parent,
