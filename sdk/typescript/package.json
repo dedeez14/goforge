@@ -24,6 +24,9 @@
         "clean": "rm -rf dist src/generated",
         "prepublishOnly": "npm run clean && npm run generate && npm run build"
     },
+    "dependencies": {
+        "@hey-api/client-fetch": "^0.4.0"
+    },
     "devDependencies": {
         "@hey-api/openapi-ts": "^0.53.0",
         "typescript": "^5.4.0"

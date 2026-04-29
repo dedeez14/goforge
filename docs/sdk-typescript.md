@@ -17,7 +17,7 @@ The same command drives local regeneration, the devcontainer and
 (eventually) the publish workflow:
 
 ```bash
-make sdk-ts URL=http://localhost:8080
+make sdk-ts BASE=http://localhost:8080
 ```
 
 Under the hood:

@@ -80,10 +80,10 @@ scaffold:
 	@test -n "$(name)" || (echo "usage: make scaffold name=<Resource>"; exit 1)
 	@bash scripts/scaffold.sh $(name)
 
-## sdk-ts: regenerate the TypeScript SDK from a running API (URL=http://localhost:8080)
+## sdk-ts: regenerate the TypeScript SDK from a running API (BASE=http://localhost:8080)
 .PHONY: sdk-ts
 sdk-ts:
-	go run ./cmd/forge sdk ts $(if $(URL),--url=$(URL),)
+	go run ./cmd/forge sdk ts $(if $(BASE),--url=$(BASE)/openapi.json,)
 
 ## help: show this help
 .PHONY: help
