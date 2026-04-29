@@ -175,6 +175,27 @@ func TestBackoffDelay_Monotonic(t *testing.T) {
 	}
 }
 
+func TestBackoffDelay_MultiplierOne_ConstantDelay(t *testing.T) {
+	// Regression: Multiplier=1.0 is a legitimate caller choice
+	// (constant delay, still get jitter). normaliseRetryConfig must
+	// not silently promote it to the 2.0 default.
+	cfg := normaliseRetryConfig(RetryConfig{
+		BaseDelay:     100 * time.Millisecond,
+		Multiplier:    1.0,
+		MaxDelay:      time.Second,
+		DisableJitter: true,
+	})
+	if cfg.Multiplier != 1.0 {
+		t.Fatalf("Multiplier=%v, want 1.0 to be preserved", cfg.Multiplier)
+	}
+	for attempt := 1; attempt <= 4; attempt++ {
+		d := backoffDelay(cfg, attempt)
+		if d != 100*time.Millisecond {
+			t.Fatalf("attempt %d: delay = %v, want 100ms (constant)", attempt, d)
+		}
+	}
+}
+
 func TestBackoffDelay_CapsAtMax(t *testing.T) {
 	cfg := normaliseRetryConfig(RetryConfig{
 		BaseDelay:     time.Second,

@@ -85,9 +85,10 @@ func DefaultShouldRetry(err error) bool {
 // errors are discarded.
 //
 // Retry respects ctx: if the context is cancelled or the deadline is
-// hit during a sleep, Retry aborts immediately with the context
-// error (not the last attempt error). fn itself is also expected to
-// honour ctx.
+// hit during a sleep, Retry aborts immediately with the last attempt
+// error (not the context error) so callers see why they actually
+// failed. If no attempt has run yet, the context error is returned.
+// fn itself is also expected to honour ctx.
 func Retry[T any](ctx context.Context, cfg RetryConfig, fn func(context.Context) (T, error)) (T, error) {
 	cfg = normaliseRetryConfig(cfg)
 	var zero T
@@ -195,7 +196,9 @@ func normaliseRetryConfig(cfg RetryConfig) RetryConfig {
 	if cfg.MaxDelay <= 0 {
 		cfg.MaxDelay = 10 * time.Second
 	}
-	if cfg.Multiplier <= 1.0 {
+	// Multiplier == 1.0 is a legitimate choice (constant-delay
+	// retries with jitter). Only reject the zero value and negatives.
+	if cfg.Multiplier < 1.0 {
 		cfg.Multiplier = 2.0
 	}
 	if cfg.JitterFraction < 0 {
