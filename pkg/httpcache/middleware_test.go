@@ -154,6 +154,72 @@ func TestMiddleware_Non200_NotCached(t *testing.T) {
 	}
 }
 
+func TestMiddleware_MaxAge_Zero_EmitsExplicitDirective(t *testing.T) {
+	// Regression: previously the zero value was silently dropped,
+	// letting caches fall back to heuristic freshness.
+	app := handlerReturning("x", Options{MaxAge: 0, Public: true})
+	req := httptest.NewRequest("GET", "/", nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if got := resp.Header.Get("Cache-Control"); got != "public, max-age=0" {
+		t.Fatalf("Cache-Control = %q, want %q", got, "public, max-age=0")
+	}
+}
+
+func TestMiddleware_MaxAge_Negative_OmitsDirective(t *testing.T) {
+	app := handlerReturning("x", Options{MaxAge: -1, Public: true})
+	req := httptest.NewRequest("GET", "/", nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if got := resp.Header.Get("Cache-Control"); got != "public" {
+		t.Fatalf("Cache-Control = %q, want %q", got, "public")
+	}
+}
+
+func TestMiddleware_Vary_EmittedOn200(t *testing.T) {
+	app := handlerReturning("body", Options{Private: true, MaxAge: 30, Vary: []string{"Authorization"}})
+	req := httptest.NewRequest("GET", "/", nil)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if got := resp.Header.Get("Vary"); got != "Authorization" {
+		t.Fatalf("Vary = %q, want Authorization", got)
+	}
+}
+
+func TestMiddleware_Vary_EmittedOn304(t *testing.T) {
+	app := handlerReturning("body", Options{Private: true, MaxAge: 30, Vary: []string{"Authorization", "X-Tenant-ID"}})
+	first := httptest.NewRequest("GET", "/", nil)
+	r, _ := app.Test(first, -1)
+	etag := r.Header.Get("ETag")
+	_ = r.Body.Close()
+
+	second := httptest.NewRequest("GET", "/", nil)
+	second.Header.Set("If-None-Match", etag)
+	r2, err := app.Test(second, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r2.Body.Close() }()
+	if r2.StatusCode != fiber.StatusNotModified {
+		t.Fatalf("want 304, got %d", r2.StatusCode)
+	}
+	// Vary MUST be on 304 too so the browser keys its cache
+	// on Authorization/X-Tenant-ID even when serving the cached
+	// copy without revalidation.
+	if got := r2.Header.Get("Vary"); got != "Authorization, X-Tenant-ID" {
+		t.Fatalf("Vary on 304 = %q, want 'Authorization, X-Tenant-ID'", got)
+	}
+}
+
 func TestOptions_Public_And_Private_Panic(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

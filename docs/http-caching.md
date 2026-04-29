@@ -20,11 +20,15 @@ cache := httpcache.New(httpcache.Options{
 app.Get("/openapi.json", cache, openapi.JSONHandler())
 
 // Per-user content (menus, permissions). Must be private so shared
-// caches never collapse two users' responses onto the same key.
+// caches never store it, AND must include Vary so the browser keys
+// its private cache on the authenticating header - otherwise user B
+// logging in on the same browser within max-age can be served user
+// A's cached response.
 private := httpcache.New(httpcache.Options{
     MaxAge:         30,
     Private:        true,
     MustRevalidate: true,
+    Vary:           []string{"Authorization", "X-Tenant-ID"},
 })
 authed.Get("/menus/mine", private, h.Menus.MyMenu)
 ```
@@ -37,8 +41,8 @@ Enabled out-of-the-box on:
 |-------|-------|--------|-----|
 | `/openapi.json` | Public | 300s | Document only changes on redeploy. |
 | `/.well-known/jwks.json` | Public | 300s | Rotation events are rare (minutes to months apart); downstream services poll aggressively. |
-| `/api/v1/me/access` | Private | 30s | SPA fetches on every page navigation. |
-| `/api/v1/menus/mine` | Private | 30s | Permission-pruned tree; re-fetched on render. |
+| `/api/v1/me/access` | Private (Vary: Authorization, X-Tenant-ID) | 30s | SPA fetches on every page navigation. |
+| `/api/v1/menus/mine` | Private (Vary: Authorization, X-Tenant-ID) | 30s | Permission-pruned tree; re-fetched on render. |
 
 ## Semantics
 

@@ -36,10 +36,22 @@ import (
 // Options configures a cache middleware instance.
 type Options struct {
 	// MaxAge sets the Cache-Control max-age directive in seconds.
-	// Zero means "validate every time" - still worthwhile because
-	// 304 responses are dramatically cheaper than re-serialising
-	// the full body.
+	// Zero means "validate every time" and emits an explicit
+	// max-age=0 directive - without it, caches fall back to
+	// heuristic freshness (potentially minutes), so the zero value
+	// would not enforce revalidation as documented. To omit the
+	// directive entirely, pass a negative value.
 	MaxAge int
+
+	// Vary lists request headers the response varies on. Every name
+	// becomes a comma-separated entry in the Vary response header.
+	// For authenticated endpoints this MUST include "Authorization"
+	// (and, where relevant, "Cookie", "X-Tenant-ID") so browsers and
+	// intermediaries never serve one caller's fresh cache entry to
+	// another user within the max-age window. Conditional GETs
+	// (304 via If-None-Match) alone are insufficient: the browser
+	// only revalidates once the response is stale.
+	Vary []string
 
 	// Public, when true, emits Cache-Control: public (allows shared
 	// caches such as a CDN to store the response). Private, when
@@ -63,6 +75,7 @@ func New(opts Options) fiber.Handler {
 		panic("httpcache: Options.Public and Options.Private are mutually exclusive")
 	}
 	cc := buildCacheControl(opts)
+	vary := strings.Join(opts.Vary, ", ")
 	return func(c *fiber.Ctx) error {
 		// Only GET/HEAD benefit from conditional caching. Everything
 		// else (POST/PUT/PATCH/DELETE) must always run.
@@ -90,6 +103,11 @@ func New(opts Options) fiber.Handler {
 		c.Set(fiber.HeaderETag, etag)
 		if cc != "" {
 			c.Set(fiber.HeaderCacheControl, cc)
+		}
+		// Vary must be emitted on both 200 and 304 so the browser
+		// cache keys on the configured headers either way.
+		if vary != "" {
+			c.Set(fiber.HeaderVary, vary)
 		}
 
 		// If-None-Match may contain one or more quoted ETags
@@ -140,7 +158,11 @@ func buildCacheControl(opts Options) string {
 	case opts.Private:
 		parts = append(parts, "private")
 	}
-	if opts.MaxAge > 0 {
+	// MaxAge == 0 is the documented "validate every time" value and
+	// must emit max-age=0 explicitly; otherwise caches fall back to
+	// heuristic freshness. Callers that want no directive at all
+	// pass a negative value.
+	if opts.MaxAge >= 0 {
 		parts = append(parts, fmt.Sprintf("max-age=%d", opts.MaxAge))
 	}
 	if opts.MustRevalidate {

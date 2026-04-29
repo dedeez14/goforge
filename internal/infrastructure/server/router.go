@@ -10,14 +10,20 @@ import (
 )
 
 // perUserCache builds a cache middleware instance for endpoints whose
-// response varies per user. The Vary header lines we'd normally add
-// (Authorization, Cookie, X-Tenant-ID) are effectively encoded in
-// the resulting body hash - different callers get different bodies
-// and therefore different ETags - but we still emit Cache-Control:
-// private, must-revalidate so shared caches cannot collapse two
-// users' responses onto one cache key.
+// response varies per user. Vary: Authorization, X-Tenant-ID is
+// mandatory: without it, a browser that logs in as a different user
+// within the max-age window can be served the previous user's cached
+// copy (the cache is addressed by URL, and conditional-GET
+// revalidation only kicks in after the response is stale). Cache-
+// Control: private additionally forbids shared caches from storing
+// these responses.
 func perUserCache() fiber.Handler {
-	return httpcache.New(httpcache.Options{MaxAge: 30, Private: true, MustRevalidate: true})
+	return httpcache.New(httpcache.Options{
+		MaxAge:         30,
+		Private:        true,
+		MustRevalidate: true,
+		Vary:           []string{"Authorization", "X-Tenant-ID"},
+	})
 }
 
 // Handlers bundles every handler used by the HTTP layer so Register()
