@@ -216,6 +216,7 @@ func allKeys() []string {
 		"database.dsn", "database.min_conns", "database.max_conns",
 		"database.max_conn_lifetime", "database.max_conn_idle_time",
 		"database.connect_timeout", "database.statement_cache",
+		"database.replica_dsn", "database.replica_min_conns", "database.replica_max_conns",
 		"jwt.secret", "jwt.next_secrets", "jwt.issuer", "jwt.access_ttl", "jwt.refresh_ttl",
 		"log.level", "log.pretty",
 		"security.cors_allow_origins", "security.rate_limit_per_min", "security.trust_x_forwarded",
