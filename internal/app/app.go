@@ -80,11 +80,19 @@ func Run(ctx context.Context) error {
 		}
 	}()
 
-	pool, err := database.New(ctx, cfg.Database, log)
+	// Router wraps the primary pool and (when configured) a read
+	// replica. Every repository still takes the primary *pgxpool.Pool
+	// for its writes; code that wants to send heavy read-only queries
+	// to the replica receives the router instead and calls Read(ctx).
+	// When cfg.Database.ReplicaDSN is empty the router carries only
+	// the primary and Read() transparently falls back - so existing
+	// deployments are unaffected.
+	router, err := database.NewRouter(ctx, cfg.Database, log)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	defer router.Close()
+	pool := router.Write()
 
 	// Infrastructure services.
 	hasher := security.NewPasswordHasher(security.Argon2idParams{
@@ -133,7 +141,7 @@ func Run(ctx context.Context) error {
 	// Handlers.
 	handlers := server.Handlers{
 		Auth:        handler.NewAuthHandler(authUC),
-		Health:      handler.NewHealthHandler(cfg.App, pool),
+		Health:      handler.NewHealthHandler(cfg.App, router),
 		Permissions: handler.NewPermissionHandler(permUC),
 		Roles:       handler.NewRoleHandler(roleUC, accessUC),
 		Menus:       handler.NewMenuHandler(menuUC, accessUC),
