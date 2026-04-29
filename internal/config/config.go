@@ -52,6 +52,14 @@ type Database struct {
 	MaxConnIdleTime time.Duration `mapstructure:"max_conn_idle_time"`
 	ConnectTimeout  time.Duration `mapstructure:"connect_timeout"`
 	StatementCache  bool          `mapstructure:"statement_cache"`
+	// ReplicaDSN, when set, enables read-replica routing via
+	// pkg/db.Router. Code that asks for Read() will hit the replica;
+	// writes and read-your-writes reads (db.WithPrimary) still go to
+	// the primary. Leave empty to run single-primary (the default
+	// and what every existing deployment keeps doing).
+	ReplicaDSN      string `mapstructure:"replica_dsn"`
+	ReplicaMinConns int32  `mapstructure:"replica_min_conns"`
+	ReplicaMaxConns int32  `mapstructure:"replica_max_conns"`
 }
 
 type JWT struct {
@@ -208,6 +216,7 @@ func allKeys() []string {
 		"database.dsn", "database.min_conns", "database.max_conns",
 		"database.max_conn_lifetime", "database.max_conn_idle_time",
 		"database.connect_timeout", "database.statement_cache",
+		"database.replica_dsn", "database.replica_min_conns", "database.replica_max_conns",
 		"jwt.secret", "jwt.next_secrets", "jwt.issuer", "jwt.access_ttl", "jwt.refresh_ttl",
 		"log.level", "log.pretty",
 		"security.cors_allow_origins", "security.rate_limit_per_min", "security.trust_x_forwarded",

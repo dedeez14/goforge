@@ -14,20 +14,56 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/dedeez14/goforge/internal/config"
+	"github.com/dedeez14/goforge/pkg/db"
 )
 
-// New constructs a connected *pgxpool.Pool.
+// New constructs a connected *pgxpool.Pool against cfg.DSN. It is the
+// single-primary constructor used by tools (migrations, CLI) that do
+// not care about read-replica routing.
 func New(ctx context.Context, cfg config.Database, log zerolog.Logger) (*pgxpool.Pool, error) {
-	pcfg, err := pgxpool.ParseConfig(cfg.DSN)
+	return newPool(ctx, cfg.DSN, cfg.MinConns, cfg.MaxConns, cfg, log, "primary")
+}
+
+// NewRouter builds the read-replica-aware pool graph. When
+// cfg.ReplicaDSN is empty the router carries only the primary pool
+// and every Read() call transparently hits the primary - the app can
+// be written replica-aware from day one and operationally promoted
+// later by setting the DSN.
+func NewRouter(ctx context.Context, cfg config.Database, log zerolog.Logger) (*db.Router, error) {
+	primary, err := newPool(ctx, cfg.DSN, cfg.MinConns, cfg.MaxConns, cfg, log, "primary")
 	if err != nil {
-		return nil, fmt.Errorf("database: parse dsn: %w", err)
+		return nil, err
 	}
 
-	if cfg.MinConns > 0 {
-		pcfg.MinConns = cfg.MinConns
+	if cfg.ReplicaDSN == "" {
+		return db.NewRouter(primary, nil), nil
 	}
-	if cfg.MaxConns > 0 {
-		pcfg.MaxConns = cfg.MaxConns
+
+	replica, err := newPool(ctx, cfg.ReplicaDSN, cfg.ReplicaMinConns, cfg.ReplicaMaxConns, cfg, log, "replica")
+	if err != nil {
+		// Tear the primary back down so we don't leak a pool on a
+		// half-successful startup. The caller will surface the
+		// error and Run will exit.
+		primary.Close()
+		return nil, err
+	}
+	return db.NewRouter(primary, replica), nil
+}
+
+// newPool is the shared configuration path for both primary and
+// replica pools. The role parameter is used only for the "connected"
+// log line so operators can tell the two roles apart.
+func newPool(ctx context.Context, dsn string, minConns, maxConns int32, cfg config.Database, log zerolog.Logger, role string) (*pgxpool.Pool, error) {
+	pcfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("database: parse %s dsn: %w", role, err)
+	}
+
+	if minConns > 0 {
+		pcfg.MinConns = minConns
+	}
+	if maxConns > 0 {
+		pcfg.MaxConns = maxConns
 	}
 	if cfg.MaxConnLifetime > 0 {
 		pcfg.MaxConnLifetime = cfg.MaxConnLifetime
@@ -48,15 +84,16 @@ func New(ctx context.Context, cfg config.Database, log zerolog.Logger) (*pgxpool
 
 	pool, err := pgxpool.NewWithConfig(ctx, pcfg)
 	if err != nil {
-		return nil, fmt.Errorf("database: connect: %w", err)
+		return nil, fmt.Errorf("database: connect %s: %w", role, err)
 	}
 
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("database: ping: %w", err)
+		return nil, fmt.Errorf("database: ping %s: %w", role, err)
 	}
 
 	log.Info().
+		Str("role", role).
 		Int32("min_conns", pcfg.MinConns).
 		Int32("max_conns", pcfg.MaxConns).
 		Msg("postgres connected")
