@@ -85,8 +85,9 @@ func TestVerify_FailsForUniversallyWeakJWTSecret(t *testing.T) {
 // shipping them as samples.
 func TestVerify_ShippedSamplePlaceholders(t *testing.T) {
 	placeholders := []string{
-		"change-me-to-a-very-long-random-string-of-32+chars", // .env.example
-		"please-change-me-to-a-very-long-random-secret-key",  // docker-compose
+		"change-me-to-a-very-long-random-string-of-32+chars",         // .env.example
+		"please-change-me-to-a-very-long-random-secret-key",          // docker-compose
+		"devcontainer-insecure-secret-only-for-local-dev-0123456789", // .devcontainer/devcontainer.json
 		"changeme",
 	}
 	for _, secret := range placeholders {
