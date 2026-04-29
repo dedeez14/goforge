@@ -40,7 +40,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		Email:    req.Email,
 		Password: req.Password,
 		Name:     req.Name,
-	})
+	}, sessionContextFromRequest(c))
 	if err != nil {
 		return httpx.RespondError(c, err)
 	}
@@ -64,7 +64,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	u, tp, err := h.auth.Login(c.UserContext(), usecase.LoginInput{
 		Email:    req.Email,
 		Password: req.Password,
-	})
+	}, sessionContextFromRequest(c))
 	if err != nil {
 		return httpx.RespondError(c, err)
 	}

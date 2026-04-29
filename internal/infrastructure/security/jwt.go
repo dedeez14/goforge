@@ -23,14 +23,27 @@ const (
 )
 
 // Claims is the JWT payload used across the application.
+//
+// SessionID ties an access / refresh token to a sessions row so the
+// /me/sessions endpoint can mark the caller's current device and so
+// Refresh can touch the owning session's last_used_at without an
+// extra DB round-trip. It is omitted from tokens that are not
+// session-bound (the non-interactive API-key exchange flow is the
+// motivating example; those tokens never rotate and never appear in
+// the UI's device list).
 type Claims struct {
 	jwt.RegisteredClaims
-	Kind TokenKind `json:"typ"`
+	Kind      TokenKind `json:"typ"`
+	SessionID string    `json:"sid,omitempty"`
 }
 
-// TokenIssuer mints and verifies JWTs.
+// TokenIssuer mints and verifies JWTs. Issue is kept for callers
+// that do not care about sessions; IssueWithSession is the
+// preferred entrypoint when minting user-session tokens so the
+// resulting Claims carry the sid JSON tag.
 type TokenIssuer interface {
 	Issue(subject uuid.UUID, kind TokenKind) (string, time.Time, error)
+	IssueWithSession(subject, sessionID uuid.UUID, kind TokenKind) (string, time.Time, error)
 	Parse(token string) (*Claims, error)
 }
 
@@ -94,6 +107,13 @@ func NewTokenIssuer(cfg config.JWT) TokenIssuer {
 }
 
 func (i *hmacIssuer) Issue(subject uuid.UUID, kind TokenKind) (string, time.Time, error) {
+	return i.IssueWithSession(subject, uuid.Nil, kind)
+}
+
+// IssueWithSession mints a token whose Claims include the given
+// sessionID as the sid claim. Pass uuid.Nil to omit it (the Issue
+// shortcut above does exactly that).
+func (i *hmacIssuer) IssueWithSession(subject, sessionID uuid.UUID, kind TokenKind) (string, time.Time, error) {
 	ttl := i.accessTTL
 	if kind == TokenRefresh {
 		ttl = i.refreshTTL
@@ -110,6 +130,9 @@ func (i *hmacIssuer) Issue(subject uuid.UUID, kind TokenKind) (string, time.Time
 			ID:        uuid.NewString(),
 		},
 		Kind: kind,
+	}
+	if sessionID != uuid.Nil {
+		claims.SessionID = sessionID.String()
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tok.Header["kid"] = i.active.id

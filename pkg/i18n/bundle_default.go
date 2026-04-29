@@ -234,5 +234,45 @@ func DefaultBundle() *Bundle {
 		LocaleID: "kode menu tidak boleh mengandung spasi atau garis miring",
 	})
 
+	// API keys (codes match internal/domain/apikey + middleware/apikey).
+	b.AddMany("apikey.not_found", map[Locale]string{
+		LocaleEN: "API key not found",
+		LocaleID: "API key tidak ditemukan",
+	})
+	b.AddMany("apikey.invalid", map[Locale]string{
+		LocaleEN: "invalid API key",
+		LocaleID: "API key tidak valid",
+	})
+	b.AddMany("apikey.malformed", map[Locale]string{
+		LocaleEN: "malformed API key",
+		LocaleID: "format API key tidak valid",
+	})
+	b.AddMany("apikey.inactive", map[Locale]string{
+		LocaleEN: "API key has been revoked or expired",
+		LocaleID: "API key telah dicabut atau kedaluwarsa",
+	})
+	b.AddMany("apikey.name_required", map[Locale]string{
+		LocaleEN: "API key name is required",
+		LocaleID: "nama API key wajib diisi",
+	})
+	b.AddMany("apikey.user_session_required", map[Locale]string{
+		LocaleEN: "this endpoint requires an interactive user session, not an API key",
+		LocaleID: "endpoint ini hanya dapat diakses dengan sesi pengguna, bukan API key",
+	})
+
+	// Sessions (self-service device list).
+	b.AddMany("session.not_found", map[Locale]string{
+		LocaleEN: "session not found",
+		LocaleID: "sesi tidak ditemukan",
+	})
+	b.AddMany("session.disabled", map[Locale]string{
+		LocaleEN: "session management is not enabled on this server",
+		LocaleID: "manajemen sesi tidak aktif pada server ini",
+	})
+	b.AddMany("auth.required", map[Locale]string{
+		LocaleEN: "authentication required",
+		LocaleID: "autentikasi diperlukan",
+	})
+
 	return b
 }

@@ -17,6 +17,7 @@ type Handlers struct {
 	Roles       *handler.RoleHandler
 	Menus       *handler.MenuHandler
 	APIKeys     *handler.APIKeyHandler
+	Sessions    *handler.SessionHandler
 }
 
 // AccessControl bundles the dependencies the route layer needs to
@@ -75,6 +76,18 @@ func Register(app *fiber.App, h Handlers, tokens security.TokenIssuer, ac Access
 	// "what can I do here" — every authenticated user may ask.
 	if h.Roles != nil {
 		authed.Get("/me/access", h.Roles.MyAccess)
+	}
+
+	// Self-service device list. Same hardening as /api-keys: an
+	// API-key-authenticated request must never be able to revoke the
+	// owning user's interactive sessions, otherwise a leaked narrow
+	// key can lock out the human and pivot to "single-credential
+	// takeover". Credential-management endpoints are JWT-only.
+	if h.Sessions != nil {
+		me := authed.Group("/me/sessions", middleware.RequireUserSession())
+		me.Get("", h.Sessions.List)
+		me.Delete("", h.Sessions.RevokeAll)
+		me.Delete("/:id", h.Sessions.Revoke)
 	}
 
 	// Menus (when wired): every authenticated user can fetch their
