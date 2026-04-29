@@ -309,7 +309,13 @@ func (uc *AuthUseCase) issuePair(ctx context.Context, userID, sessionID uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	refresh, _, err := uc.tokens.IssueWithSession(userID, sessionID, security.TokenRefresh)
+	// Use the JWT's own exp claim (refreshTokenExp) as the authority
+	// for the refresh-store row and the sessions row. The issuer
+	// computes its own time.Now() so the two values can drift by a
+	// few milliseconds under load; if the store's expires_at lags
+	// behind the JWT's exp, Use() can reject a token as expired
+	// before the client even sees it pass the exp check.
+	refresh, refreshTokenExp, err := uc.tokens.IssueWithSession(userID, sessionID, security.TokenRefresh)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +334,7 @@ func (uc *AuthUseCase) issuePair(ctx context.Context, userID, sessionID uuid.UUI
 			return nil, errs.Wrap(errs.KindInternal, "auth.issue_pair",
 				"failed to read JTI from freshly-issued refresh token", perr)
 		}
-		if serr := uc.refresh.Save(ctx, claims.ID, userID, sessionID, refreshExp); serr != nil {
+		if serr := uc.refresh.Save(ctx, claims.ID, userID, sessionID, refreshTokenExp); serr != nil {
 			return nil, errs.Wrap(errs.KindInternal, "auth.refresh_store", "persist refresh token", serr)
 		}
 	}
