@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dedeez14/goforge/pkg/jobs"
+	"github.com/dedeez14/goforge/pkg/resilience"
 )
 
 // JobKind is the canonical name of the webhook delivery job. Wire
@@ -41,6 +42,18 @@ type Dispatcher struct {
 	Store     EndpointStore
 	HTTP      *http.Client
 	UserAgent string
+
+	// BreakerFor, if set, returns a circuit breaker for the given
+	// endpoint ID. Deliveries to that endpoint route through the
+	// breaker, so a persistently-failing subscriber's traffic is
+	// shed immediately (resilience.ErrOpen) instead of piling up
+	// job-retry attempts. Return nil to opt a specific endpoint
+	// out of breaker protection. Leave BreakerFor itself nil to
+	// disable across the board (back-compat default).
+	//
+	// Typical implementation memoises one breaker per endpoint ID
+	// in a sync.Map so state persists across deliveries.
+	BreakerFor func(endpointID string) *resilience.CircuitBreaker
 }
 
 // NewDispatcher returns a Dispatcher with sensible defaults.
@@ -94,24 +107,33 @@ func (d *Dispatcher) Deliver(ctx context.Context, payload json.RawMessage) error
 		return fmt.Errorf("webhooks: load endpoint: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, bytes.NewReader(p.Body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", d.UserAgent)
-	req.Header.Set("Webhook-Event", p.EventID)
-	req.Header.Set(SignatureHeader, Sign(ep.Secret, p.EventID, p.Body, time.Time{}))
+	send := func(ctx context.Context) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.URL, bytes.NewReader(p.Body))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", d.UserAgent)
+		req.Header.Set("Webhook-Event", p.EventID)
+		req.Header.Set(SignatureHeader, Sign(ep.Secret, p.EventID, p.Body, time.Time{}))
 
-	resp, err := d.HTTP.Do(req)
-	if err != nil {
-		return fmt.Errorf("webhooks: post: %w", err)
+		resp, err := d.HTTP.Do(req)
+		if err != nil {
+			return fmt.Errorf("webhooks: post: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		// Drain so HTTP/1.1 keep-alive can reuse the connection.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		if resp.StatusCode/100 != 2 {
+			return fmt.Errorf("webhooks: %s -> HTTP %d", ep.URL, resp.StatusCode)
+		}
+		return nil
 	}
-	defer func() { _ = resp.Body.Close() }()
-	// Drain so HTTP/1.1 keep-alive can reuse the connection.
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("webhooks: %s -> HTTP %d", ep.URL, resp.StatusCode)
+
+	if d.BreakerFor != nil {
+		if cb := d.BreakerFor(ep.ID); cb != nil {
+			return cb.Execute(ctx, send)
+		}
 	}
-	return nil
+	return send(ctx)
 }
