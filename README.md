@@ -344,6 +344,7 @@ The use-case layer is tested with an in-memory `user.Repository` so tests are he
 - [`docs/quota.md`](./docs/quota.md) — `pkg/quota` per-tenant quotas (tiered policies) layered on top of `pkg/ratelimit`.
 - [`docs/partitioning.md`](./docs/partitioning.md) — `pkg/partition` monthly range partitions + rolling maintainer for high-churn tables (`audit_log`).
 - [`docs/retention.md`](./docs/retention.md) — `pkg/retention` archives aged-out partitions to object storage (gzipped CSV) and drops them from Postgres.
+- [`docs/queue.md`](./docs/queue.md) — `pkg/queue` pub/sub abstraction with NATS JetStream default + in-memory test backend (complements `pkg/outbox`).
 - [`docs/devcontainer.md`](./docs/devcontainer.md) — one-click VS Code / Codespaces workspace.
 - [`docs/sdk-typescript.md`](./docs/sdk-typescript.md) — TypeScript SDK auto-generated from `/openapi.json`.
 - [`docs/admin-ui.md`](./docs/admin-ui.md) — bundled admin SPA at `/panel/` (users, roles, permissions, menus, sessions, API keys).
